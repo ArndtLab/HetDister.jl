@@ -1,0 +1,7 @@
+name = "DemoInfer"
+uuid = "50651ce3-0423-45d2-b99c-8ea4267d2717"
+authors = ["Tommaso Stentella <stentell@molgen.mpg.de> and contributors"]
+version = "0.1.0"
+
+[compat]
+julia = "1.10"
