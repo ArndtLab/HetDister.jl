@@ -1,6 +1,7 @@
-function plot_demography(epochs::Vector{Int}, fits::Vector{FitResult}, ax; id="", c = nothing, alp=1)
+function plot_demography(fits::Vector{FitResult}, ax; id="", c = nothing, alp=1)
     oldest_epoch = length(fits[end].para) > 2 ? fits[end].para[3] : 1000
     old_t = maximum([sum(fit.para[3:2:end-1]) for fit in fits]) + oldest_epoch
+    epochs = [length(fit.para)÷2 for fit in fits]
     for (fit,nepochs) in zip(fits,epochs)
         TN = fit.para[end:-1:2]
         stdTN = fit.opt.stderrors[end:-1:2]
@@ -50,6 +51,21 @@ function plot_demography(epochs::Vector{Int}, fits::Vector{FitResult}, ax; id=""
     end
 end
 
+"""
+    plot_demography(fit::FitResult, ax; id="", c = nothing, alp=1)
+    plot_demography(fits::Vector{FitResult}, ax; id="", c = nothing, alp=1)
+
+Plot the demographic profile encoded in the parameters inferred by the fit.
+
+If given a vector of fits, it will plot all the demographic profiles in the same axis with color coded epochs.
+
+# Arguments
+- `fit`: the fit result
+- `ax`: the pyplot axis where to plot the demographic profile
+- `id`: the optional label of the sample
+- `c`: the optional color
+- `alp`: the optional transparency, in [0,1]
+"""
 function plot_demography(fit::FitResult, ax; id="", c = nothing, alp=1)
     plot_demography([length(fit.para)÷2], [fit], ax; id=id, c=c, alp=alp)
 end
@@ -59,7 +75,7 @@ function xy(h::HistogramBinnings.Histogram{T, 1, E}; mode = :density) where {T, 
     return midpoints(h.edges[1]), hn.weights
 end
 
-function integral_weigths(edges::Vector, mu::Float64, TN::Vector)
+function integral_weigths(edges::Vector{T}, mu::Float64, TN::Vector) where {T <: Number}
     a = 0.5
     last_hid_I = hid_integral(TN, mu, edges[1] - a)
     weights = Vector{Float64}(undef, length(edges)-1)
@@ -71,17 +87,72 @@ function integral_weigths(edges::Vector, mu::Float64, TN::Vector)
     weights
 end
 
+"""
+    plot_hist(h::Histogram; kwargs...)
+
+Plot the histogram `h` using PyPlot.
+
+Optional arguments are passed to `scatter` from pyplot.
+"""
 function plot_hist(h::HistogramBinnings.Histogram{T, 1, E}; kwargs...) where {T, E}
     x, y = xy(h)
     scatter(x, y; kwargs...)
 end
 
+"""
+    plot_residuals(h_obs::Histogram, fit::FitResult, μ::Float64, ρ::Float64; kwargs...)
+    plot_residuals(h_obs::Histogram, para::Vector{T}, μ::Float64, ρ::Float64; kwargs...)
+
+Plot the residuals of the simulation, with given `fit` result` or `para` as input, 
+with respect to the observed histogram `h_obs`.
+
+Optional arguments are passed to `scatter` from pyplot.
+"""
 function plot_residuals(h_obs::Histogram, fit::FitResult, μ::Float64, ρ::Float64; kwargs...)
+    plot_residuals(h_obs, fit.para, μ, ρ; kwargs...)
+end
+
+function plot_residuals(h_obs::Histogram, para::Vector{T}, μ::Float64, ρ::Float64; kwargs...) where {T <: Number}
     h_sim = HistogramBinnings.Histogram(h_obs.edges)
-    get_sim!(fit.para, h_sim, μ, ρ, factor=1)
+    get_sim!(para, h_sim, μ, ρ, factor=1)
     residuals = (h_obs.weights .- h_sim.weights) ./ sqrt.(h_obs.weights)
     x, y = xy(h_obs) 
     x_ = x[(y .!= 0).&(x.>1e0)]
     y_ = residuals[(y .!= 0).&(x.>1e0)]
     scatter(x_, y_; kwargs...)
 end
+
+"""
+    plot_naive_residuals(h_obs::Histogram, fit::FitResult, μ::Float64; kwargs...)
+    plot_naive_residuals(h_obs::Histogram, para::Vector{T}, μ::Float64; kwargs...)
+
+Plot of residuals between observed histogram `h_obs` and the naive theory.
+
+See `plot_residuals` for more details.
+"""
+function plot_naive_residuals(h_obs::Histogram, fit::FitResult, μ::Float64; kwargs...)
+    plot_naive_residuals(h_obs, fit.para, μ; kwargs...)
+end
+
+function plot_naive_residuals(h_obs::Histogram, para::Vector{T}, μ::Float64; kwargs...) where {T <: Number}
+    weights_th = integral_weigths(h_obs.edges[1].edges, μ, para)
+    residuals = (h_obs.weights .- weights_th) ./ sqrt.(h_obs.weights)
+    x, y = xy(h_obs) 
+    x_ = x[(y .!= 0).&(x.>1e0)]
+    y_ = residuals[(y .!= 0).&(x.>1e0)]
+    scatter(x_, y_; kwargs...)
+end
+
+"""
+    get_evidence(fit::FitResult)
+
+Return the evidence of the fit.
+"""
+get_evidence(fit::FitResult) = fit.opt.evidence
+
+"""
+    get_sds(fit::FitResult)
+
+Return the standard deviations of the parameters of the fit.
+"""
+get_sds(fit::FitResult) = fit.opt.stderrors

@@ -17,4 +17,8 @@ include("simulate.jl")
 include("corrections.jl")
 include("plot_utils.jl")
 
+export get_sim!, sequential_fit, corrected_fit, get_evidence, get_sds,
+    plot_demography, plot_hist, plot_residuals, plot_naive_residuals,
+    xy
+
 end

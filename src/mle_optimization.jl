@@ -203,11 +203,11 @@ function fit_epochs_integral(hist::StatsBase.Histogram, mu::Float64;
 
     
     para = vec(mle.values)
-    para_name = EpochModel.correct_name.(string.(names(mle.values, 1)))
+    para_name = DemoInfer.correct_name.(string.(names(mle.values, 1)))
     lp = -minimum(mle.optim_result)
     
     
-    hess = EpochModel.getHessian(mle)
+    hess = DemoInfer.getHessian(mle)
     dethess = det(hess)
     
     at_boundary = map((l,x,u) -> (x<l*1.01) || (x>u/1.01), low, para, upp)
@@ -304,11 +304,11 @@ function fit_Ns_integral(hist::StatsBase.Histogram, mu::Float64, Ts::Vector{Floa
 
     
     para = vec(mle.values)
-    para_name = EpochModel.correct_name.(string.(names(mle.values, 1)))
+    para_name = DemoInfer.correct_name.(string.(names(mle.values, 1)))
     lp = -minimum(mle.optim_result)
     
     
-    hess = EpochModel.getHessian(mle)
+    hess = DemoInfer.getHessian(mle)
     dethess = det(hess)
     
     at_boundary = map((l,x,u) -> (x<l*1.01) || (x>u/1.01), low, para, upp)
@@ -411,13 +411,13 @@ function fit_epochs_mids(obs_x::Vector, obs_y::Vector, obs_w::Vector, mu::Float6
   
 
    
-    model = EpochModel.model_epochs(obs_x, obs_y, obs_w, mu, TNd)
+    model = DemoInfer.model_epochs(obs_x, obs_y, obs_w, mu, TNd)
 
     mle = optimize(model, MLE(), pinit, solver, opt)
 
     
     para = vec(mle.values)
-    para_name = EpochModel.correct_name.(string.(names(mle.values, 1)))
+    para_name = DemoInfer.correct_name.(string.(names(mle.values, 1)))
     lp = -minimum(mle.optim_result)
     
     im = informationmatrix(mle)

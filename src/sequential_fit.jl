@@ -1,10 +1,11 @@
-function initializer(h, μ, prev_fit; frame = 20, pos = true)    # find approximate time of positive (negative) deviation from previous fit
-    w_th = integral_weigths(h.edges[1], μ, prev_fit)
+function initializer(h, μ, prev_para; frame = 20, pos = true)    # find approximate time of positive (negative) deviation from previous fit
+    w_th = integral_weigths(h.edges[1].edges, μ, prev_para)
+    r = midpoints(h.edges[1])
     residuals = pos ? (h.weights - w_th) ./ sqrt.(h.weights) : (w_th - h.weights) ./ sqrt.(h.weights)
     residuals[h.weights .== 0] .= 0
 
     divide = zeros(Int, length(residuals))
-    divide[(residuals .> 0) .& (x .> 30)] .= 1
+    divide[(residuals .> 0) .& (r .> 30)] .= 1
     divide[residuals .< 0] .= 0
     j = 1
     while j < length(divide)
@@ -20,7 +21,7 @@ function initializer(h, μ, prev_fit; frame = 20, pos = true)    # find approxim
 
     for j in eachindex(residuals[1:end-1])
         if divide[j] == 0 && divide[j+1] == 1
-            return 3 / (2μ * x[j])
+            return 3 / (2μ * r[j])
         end
     end
     return nothing
@@ -40,6 +41,14 @@ function perturb_fit!(f, h, μ, init, nepochs; by_pass = false)
     return f
 end
 
+"""
+    sequential_fit(h::Histogram, μ::Float64, nfits::Int; Tlow = 10)
+
+Fit (uncorrected) the histogram `h` with an increasing number of epochs, starting from 1 up to `nfits`.
+
+The function returns an array of `FitResult` objects, one for each fit.
+`Tlow` is the optional lower bound for the duration of epochs.
+"""
 function sequential_fit(h::Histogram, μ::Float64, nfits::Int; Tlow = 10)
     fits = Vector{FitResult}(undef, nfits)
     for i in 1:nfits
