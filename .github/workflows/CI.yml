@@ -62,7 +62,7 @@ jobs:
         with:
           version: '1'
       - uses: julia-actions/cache@v2
-      - run: julia -e 'using Pkg; Pkg.Registry.add(RegistrySpec(url = "https://github.com/ArndtLab/JuliaRegistry.git"))' 
+      - run: julia -e 'using Pkg; Pkg.Registry.add(RegistrySpec(url = "https://github.com/ArndtLab/JuliaRegistry.git")); Pkg.Registry.add("General"); Pkg.Registry.status()' 
         shell: bash
       - name: Configure doc environment
         env:

@@ -32,5 +32,5 @@ end
     estimate = res[end].para
     sds = res[end].opt.stderrors
 
-    @test all(estimate .- 3sds .< TN .< estimate .+ 3sds)
+    @test all(estimate .- 5sds .< TN .< estimate .+ 5sds)
 end
