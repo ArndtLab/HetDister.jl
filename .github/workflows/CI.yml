@@ -39,6 +39,16 @@ jobs:
       - uses: julia-actions/cache@v2
       - run: julia -e 'using Pkg; Pkg.Registry.add(RegistrySpec(url = "https://github.com/ArndtLab/JuliaRegistry.git"))' 
         shell: bash
+      - name: Configure python environment
+        env:
+          PYTHON: ""
+        shell: julia --project --color=yes {0}
+        run: |
+          ENV["PYTHON"] = ""
+          using Pkg
+          Pkg.develop(PackageSpec(path=pwd()))
+          Pkg.instantiate()
+          Pkg.build("PyPlot")
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
   docs:
@@ -57,11 +67,14 @@ jobs:
       - run: julia -e 'using Pkg; Pkg.Registry.add(RegistrySpec(url = "https://github.com/ArndtLab/JuliaRegistry.git"))' 
         shell: bash
       - name: Configure doc environment
+        env:
+          PYTHON: ""
         shell: julia --project=docs --color=yes {0}
         run: |
           using Pkg
           Pkg.develop(PackageSpec(path=pwd()))
           Pkg.instantiate()
+          Pkg.build("PyPlot")
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-docdeploy@v1
         env:

@@ -1,7 +1,6 @@
 module DemoInfer
 
 using PyPlot
-pushfirst!(PyPlot.pyimport("sys")."path", "")
 using StatsBase, Distributions, HistogramBinnings
 using PopSimIBX
 using LinearAlgebra, Statistics
