@@ -13,6 +13,9 @@ launch julia, then:
 ```julia
 using Pkg; Pkg.activate(".")
 ```
+```
+Pkg.Registry.add(RegistrySpec(url = "https://github.com/ArndtLab/JuliaRegistry.git"))
+```
 ```julia
 Pkg.add("DemoInfer","HistogramBinnings","CSV","DataFrames")
 using DemoInfer, HistogramBinnings, CSV, DataFrames
