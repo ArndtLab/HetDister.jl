@@ -11,7 +11,7 @@ the IBS segments in the `h`.
 - `factor`: determine how many genomes are simulated and averaged
 - `smooth`: determine if the simulation is smoothed by a fit
 """
-function get_sim!(params::Vector, h::Histogram, mu::Float64, rho::Float64; factor = 1, smooth::Bool = true)
+function get_sim!(params::Vector, h::Histogram, mu::Float64, rho::Float64; factor = 1, smooth::Bool = false)
     L = Int(ceil(params[1])*factor)
     Ns = Int.(ceil.(reverse(params[2:2:end])))
     any(Ns .< 10) && error("Population sizes must be at least 10")
