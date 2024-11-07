@@ -28,13 +28,13 @@ function get_sim!(params::Vector, h::Histogram, mu::Float64, rho::Float64; facto
     h.weights .= 0
     append!(h, IBSIterator(SMCprime.IBDIterator(pop_sim), pop_sim.mutation_rate))
     h.weights .= Int.(ceil.(h.weights/factor))
-    if smooth
+    if smooth   # this probably does not work at the moment, the fit should maybe have "actual epochs" + 1
         if length(params) < 6
             f = sequential_fit(h, mu, 3)[end]
         else
             f = fit_epochs(h, mu; nepochs = length(params)÷2, init = params, Tupp = 5params[2])
         end
-        h.weights .= round.(Int, integral_weigths(h.edges[1].edges, mu, f.para))
+        h.weights .= round.(Int, integral_ws(h.edges[1].edges, mu, f.para))
         @assert all(h.weights .>= 0)
     end
 end

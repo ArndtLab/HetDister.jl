@@ -1,5 +1,5 @@
 function initializer(h, μ, prev_para; frame = 20, pos = true)    # find approximate time of positive (negative) deviation from previous fit
-    w_th = integral_weigths(h.edges[1].edges, μ, prev_para)
+    w_th = integral_ws(h.edges[1].edges, μ, prev_para)
     r = midpoints(h.edges[1])
     residuals = pos ? (h.weights - w_th) ./ sqrt.(h.weights) : (w_th - h.weights) ./ sqrt.(h.weights)
     residuals[h.weights .== 0] .= 0

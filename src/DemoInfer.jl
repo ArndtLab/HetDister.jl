@@ -20,7 +20,7 @@ export get_sim!,
     get_evidence, get_sds
 
 
-function integral_weigths(edges::Vector{T}, mu::Float64, TN::Vector) where {T <: Number}
+function integral_ws(edges::Vector{T}, mu::Float64, TN::Vector) where {T <: Number}
     a = 0.5
     last_hid_I = hid_integral(TN, mu, edges[1] - a)
     weights = Vector{Float64}(undef, length(edges)-1)
