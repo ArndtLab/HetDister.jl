@@ -5,7 +5,7 @@
 [![Build Status](https://github.com/ArndtLab/DemoInfer.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/ArndtLab/DemoInfer.jl/actions/workflows/CI.yml?query=branch%3Amain)
 
 Module to run demographic inference on diploid genomes, under the assumption of panmixia (i.e. the inferred effective population size is half the inverse of the observed mean coalescence rate).
-See this repo for a demo of how to use it.
+See [this](https://github.com/ArndtLab/DemoInferDemo) repo for a demo of how to use it.
 
 To run the package, first install julia ([here](https://julialang.org/downloads/)).
 To create a local environment with the package `cd` into your work directory and 
@@ -13,7 +13,7 @@ launch julia, then:
 ```julia
 using Pkg; Pkg.activate(".")
 ```
-```
+```julia
 Pkg.Registry.add(RegistrySpec(url = "https://github.com/ArndtLab/JuliaRegistry.git"))
 ```
 ```julia

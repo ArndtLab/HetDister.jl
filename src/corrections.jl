@@ -25,7 +25,7 @@ function corrected_fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64
 
         for iters in 1:iters
             weights_th = integral_ws(h_obs.edges[1].edges, mu, init)
-            factor = any(init[3:3:end] ./ init[4:2:end] .> 1) ? 20 : 1
+            factor = any( (init[3:2:end] ./ init[4:2:end]) .> 1 ) ? 20 : 1
             get_sim!(init, h_sim, mu, rho, factor=factor)
         
             ho_mod.weights .= h_obs.weights

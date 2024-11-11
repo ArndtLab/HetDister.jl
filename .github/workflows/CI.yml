@@ -54,12 +54,12 @@ jobs:
         with:
           version: '1'
       - uses: julia-actions/cache@v2
-      - run: julia -e 'using Pkg; Pkg.Registry.add(RegistrySpec(url = "https://github.com/ArndtLab/JuliaRegistry.git")); Pkg.Registry.add("General"); Pkg.Registry.status()' 
-        shell: bash
       - name: Configure doc environment
         shell: julia --project=docs --color=yes {0}
         run: |
           using Pkg
+          Pkg.Registry.add("General")
+          Pkg.Registry.add(RegistrySpec(url = "https://github.com/ArndtLab/JuliaRegistry.git"))
           Pkg.develop(PackageSpec(path=pwd()))
           Pkg.instantiate()
       - uses: julia-actions/julia-buildpkg@v1
