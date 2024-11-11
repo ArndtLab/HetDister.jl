@@ -189,7 +189,7 @@ function fit_epochs_integral(hist::StatsBase.Histogram, mu::Float64;
     if !isnothing(perturbation)
         pinit = map(pinit, low, upp) do p, l, u
             if perturbation < 1
-                rand(Truncated(LogNormal(log(p), perturbation), l, u))
+                rand(truncated(LogNormal(log(p), perturbation), l, u))
             else
                 rand(Uniform(l, u))
             end
@@ -290,7 +290,7 @@ function fit_Ns_integral(hist::StatsBase.Histogram, mu::Float64, Ts::Vector{Floa
     if !isnothing(perturbation)
         pinit = map(pinit, low, upp) do p, l, u
             if perturbation < 1
-                rand(Truncated(LogNormal(log(p), perturbation), l, u))
+                rand(truncated(LogNormal(log(p), perturbation), l, u))
             else
                 rand(Uniform(l, u))
             end
