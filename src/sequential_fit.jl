@@ -21,18 +21,18 @@ function initializer(h, μ, prev_para; frame = 20, pos = true)    # find approxi
 
     for j in eachindex(residuals[1:end-1])
         if divide[j] == 0 && divide[j+1] == 1
-            return 3 / (2μ * r[j])
+            return 2 / (2μ * r[j])
         end
     end
     return nothing
 end
 
-function perturb_fit!(f, h, μ, init, nepochs; by_pass = false)
-    tbounds(fit) = any(fit.para .== 10.)
+function perturb_fit!(f, h, μ, init, nepochs, Ltot; by_pass = false)
+    tbounds(fit) = any(fit.para .== 10.) || any(fit.para .== 1e5)
     if (f.opt.evidence == Inf) || (tbounds(f) && by_pass)
         perturbations = mapreduce(i->fill(i, 10),vcat, [0.001, 0.01, 0.1, 0.5, 0.5, 2, 2])
         for perturbation in perturbations
-            f = fit_epochs(h, μ; init, perturbation = perturbation, nepochs, Tupp = 5init[2], Tlow = 10)
+            f = fit_epochs(h, μ; init, Ltot, perturbation = perturbation, nepochs, Tupp = 5init[2], Tlow = 10)
             if (f.opt.evidence != Inf) && !(tbounds(f) && by_pass)
                 break
             end
@@ -49,14 +49,14 @@ Fit (uncorrected) the histogram `h` with an increasing number of epochs, startin
 The function returns an array of `FitResult` objects, one for each fit.
 `Tlow` is the optional lower bound for the duration of epochs.
 """
-function sequential_fit(h::Histogram, μ::Float64, nfits::Int; Tlow = 10)
+function sequential_fit(h::Histogram, μ::Float64, nfits::Int, Ltot::Number; Tlow = 10)
     fits = Vector{FitResult}(undef, nfits)
     for i in 1:nfits
         if i == 1
-            f = fit_epochs(h, μ; nepochs = i)
+            f = fit_epochs(h, μ; nepochs = i, Ltot)
         elseif i == 2
-            f = fit_epochs(h, μ; nepochs = i, Tlow = Tlow)
-            f = perturb_fit!(f, h, μ, f.para, i)
+            f = fit_epochs(h, μ; nepochs = i, Tlow = Tlow, Ltot)
+            f = perturb_fit!(f, h, μ, f.para, i, Ltot)
         else
             t1 = initializer(h, μ, fits[i-1].para, pos = true)
             if isnothing(t1)
@@ -82,8 +82,8 @@ function sequential_fit(h::Histogram, μ::Float64, nfits::Int; Tlow = 10)
                 newN = init[2]
                 insert!(init, 3, newN)
                 insert!(init, 3, newT)
-                f = fit_epochs(h, μ; init, nepochs = i, Tlow = Tlow, Tupp = 5init[2])
-                f = perturb_fit!(f, h, μ, init, i)
+                f = fit_epochs(h, μ; init, nepochs = i, Tlow = Tlow, Tupp = 5init[2], Ltot)
+                f = perturb_fit!(f, h, μ, init, i, Ltot)
             else
                 if t == 10
                     newT1 = (ts[end-1] - ts[end]) / 2
@@ -100,16 +100,16 @@ function sequential_fit(h::Histogram, μ::Float64, nfits::Int; Tlow = 10)
                 init[2split_epoch-1] = newT1
                 insert!(init, 2split_epoch, newT2)
                 insert!(init, 2split_epoch, newN)
-                f = fit_epochs(h, μ; init, nepochs = i, Tlow = Tlow, Tupp = 5init[2])
-                f = perturb_fit!(f, h, μ, init, i)
+                f = fit_epochs(h, μ; init, nepochs = i, Tlow = Tlow, Tupp = 5init[2], Ltot)
+                f = perturb_fit!(f, h, μ, init, i, Ltot)
             end
             if !f.converged
-                f = perturb_fit!(f, h, μ, init, i, by_pass = true)
+                f = perturb_fit!(f, h, μ, init, i, Ltot, by_pass = true)
             end
         end
 
         if any(isnan.(f.para))
-            f = perturb_fit!(f, h, μ, f.opt.init, i, by_pass = true)
+            f = perturb_fit!(f, h, μ, f.opt.init, i, Ltot, by_pass = true)
         end
 
         fits[i] = f
