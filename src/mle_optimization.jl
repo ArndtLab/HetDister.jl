@@ -144,6 +144,7 @@ fit_epochs(hist::StatsBase.Histogram, mu::Float64; kwargs...) = fit_epochs_integ
 
 function fit_epochs_integral(hist::StatsBase.Histogram, mu::Float64; 
     nepochs::Int = 1,
+    Ltot = nothing,
     init = nothing,
     perturbation = nothing,
     solver = LBFGS(),
@@ -160,9 +161,13 @@ function fit_epochs_integral(hist::StatsBase.Histogram, mu::Float64;
     counts = hist.weights
     @assert length(edges) - 1 == length(counts)
 
+    if isnothing(Ltot)
+        Ltot = sum(midpoints(hist.edges[1]) .* hist.weights)
+        @warn "optional parameter Ltot inferred from histogram: this could lead to wrong results"
+    end
+
     # get a good initial guess
     if isnothing(init)
-        Ltot = sum(midpoints(hist.edges[1]) .* hist.weights)
         N = 1/(4*mu*(Ltot/sum(hist.weights)))
         init = [Ltot, N]
         for i in 2:nepochs
@@ -175,8 +180,8 @@ function fit_epochs_integral(hist::StatsBase.Histogram, mu::Float64;
     
     # set the range for the parameters
     if isnothing(low) || isnothing(upp)
-        low = [init[1]/range_factor, init[2]/range_factor]
-        upp = [init[1]*range_factor, init[2]*range_factor]
+        low = [init[1]/2, init[2]/range_factor] # changed L boundaries
+        upp = [init[1]+10., init[2]*range_factor]
         for i in 2:nepochs
             append!(low, [Tlow, Nlow])
             append!(upp, [Tupp, Nupp])
