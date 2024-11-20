@@ -12,7 +12,7 @@ using Test
     )
     ĥ = Histogram(LogEdgeVector(lo = 30, hi = 1_000_000, nbins = 200));
     append!(ĥ, IBSIterator(SMCprime.IBDIterator(pop), pop.mutation_rate))
-    res = sequential_fit(ĥ, 2.36e-8, 4)
+    res = sequential_fit(ĥ, 2.36e-8, 5)
 
     @test all(map(x->x.converged, res))
     @test isnothing(
@@ -36,5 +36,5 @@ end
     estimate = res[end].para
     sds = res[end].opt.stderrors
 
-    @test all(estimate .- 3sds .< TN .< estimate .+ 3sds) skip=true
+    @test all((estimate .- 3sds) .< TN .< (estimate .+ 3sds)) skip=true
 end
