@@ -34,7 +34,9 @@ Set a value for the rates and run the inference:
 ```julia
 mu = 2.36e-8
 rho = 1e-8
-res, chains = corrected_fit(ĥ, 3, 2.36e-8, 1e-8, start = 1, iters = 10, final_factor=100)
+Ltot = sum(data[:,1])
+nepochs = 3
+res, chains = fit(h_obs, nepochs, mu, rho, Ltot)
 ```
 
 See the docs for more details.

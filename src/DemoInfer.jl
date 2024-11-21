@@ -16,7 +16,7 @@ include("simulate.jl")
 include("corrections.jl")
 
 export get_sim!,
-    sequential_fit, corrected_fit,
+    sequential_fit, fit,
     get_evidence, get_sds
 
 

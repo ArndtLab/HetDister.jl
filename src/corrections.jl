@@ -1,5 +1,5 @@
 """
-    corrected_fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64; kwargs...)
+    fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64; kwargs...)
 
 Fit iteratively the histogram `h_obs` with up to `nepochs` and return a vector of `FitResult` 
 and a vector of matrices `chain` with the parameter vector of each iteration.
@@ -19,7 +19,7 @@ boundaries of populations sizes. This can be useful if structure is expected bec
 separation between two subpopulations show up as a higher population size (smaller coalescence rate).
 - `level::Float64=0.95`: The confidence level for the confidence intervals on the parameters estimates.
 """
-function corrected_fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number; 
+function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number; 
     start = 1,
     iters = 100,
     final_factor=100, 
