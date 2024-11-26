@@ -75,7 +75,7 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
                     evidence += chain[j].opt.evidence
                     lp += chain[j].lp
                     sample_size += 1
-                elseif all(chain[j].para != 1e5)
+                elseif !any(chain[j].para .≈ 1e5)
                     estimate .+= chain[j].para
                     estimate_sd .+= chain[j].opt.stderrors .^2
                     evidence += chain[j].opt.evidence
