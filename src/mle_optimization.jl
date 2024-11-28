@@ -1,13 +1,20 @@
+"""
+    struct FitResult
+
+A data structure to store the results of a fit.
+"""
 struct FitResult
     nepochs::Int
     bin::Int
     mu::Float64
-    para
+    para::Vector
+    stderrors::Vector
     para_name
     TN::Vector
     method::String
     converged::Bool
     lp::Float64
+    evidence::Float64
     opt
 end
 
@@ -21,9 +28,8 @@ function Base.show(io::IO, f::FitResult)
     for i in 2:length(f.para)
         print(io, " ,", @sprintf("%.1f",f.para[i]))
     end
-    print(io, "] ", @sprintf("%.3f",f.lp))
+    print(io, "] ", @sprintf("logL %.3f",f.lp), @sprintf(" | evidence %.3f",f.evidence))
 end
-
 
 # helper functions
 
@@ -203,11 +209,13 @@ function fit_epochs_integral(hist::StatsBase.Histogram, mu::Float64;
         length(counts),
         mu, 
         para,
+        stderrors,
         para_name,
         para,
         summary(mle.optim_result),
         Optim.converged(mle.optim_result),
         lp,
+        evidence,
         (; 
             mle.optim_result,
             at_any_boundary = any(at_boundary), 
@@ -215,7 +223,7 @@ function fit_epochs_integral(hist::StatsBase.Histogram, mu::Float64;
             low, upp, pinit, init,
             maxchange,
             coeftable = ct, 
-            stderrors, zscore, pvalues = p, ci_low, ci_high,
-            evidence, dethess)
+            zscore, pvalues = p, ci_low, ci_high,
+            dethess)
     )
 end
