@@ -69,3 +69,22 @@ pop_sizes(fit::FitResult) = fit.para[2:2:end]
 Return the fitted durations of the epochs.
 """
 durations(fit::FitResult) = fit.para[3:2:end-1]
+
+"""
+    get_chain(fit::FitResult)
+
+Return two matrices containing the chain of fitted parameters
+and std errors respectively.
+"""
+function get_chain(fit::FitResult)
+    if isempty(findall(keys(fit.opt) .== :chain))
+        return fit.para, fit.stderrors
+    end
+    p = mapreduce(hcat, fit.opt.chain) do x
+        get_para(x)
+    end
+    sd = mapreduce(hcat, fit.opt.chain) do x
+        sds(x)
+    end
+    return p, sd
+end
