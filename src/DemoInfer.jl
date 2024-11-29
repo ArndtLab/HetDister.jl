@@ -10,14 +10,21 @@ using Logging
 import DynamicPPL, ForwardDiff, Accessors
 using MLDs
 
+using Logging
+disable_logging(Logging.Warn)
+logger = ConsoleLogger(stderr, Logging.Error)
+global_logger(logger)
+
+include("fitresult.jl")
 include("mle_optimization.jl")
 include("sequential_fit.jl")
 include("simulate.jl")
 include("corrections.jl")
 
 export get_sim!,
-    sequential_fit, fit,
-    get_evidence, get_sds
+    pre_fit, fit, compare_models, estimate_nepochs,
+    get_para, evd, sds, pop_sizes, durations, get_chain,
+    FitResult
 
 
 function integral_ws(edges::Vector{T}, mu::Float64, TN::Vector) where {T <: Number}
@@ -31,19 +38,5 @@ function integral_ws(edges::Vector{T}, mu::Float64, TN::Vector) where {T <: Numb
     end
     weights
 end
-
-"""
-    get_evidence(fit::FitResult)
-
-Return the evidence of the fit.
-"""
-get_evidence(fit::FitResult) = fit.opt.evidence
-
-"""
-    get_sds(fit::FitResult)
-
-Return the standard deviations of the parameters of the fit.
-"""
-get_sds(fit::FitResult) = fit.opt.stderrors
 
 end
