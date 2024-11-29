@@ -1,36 +1,3 @@
-"""
-    struct FitResult
-
-A data structure to store the results of a fit.
-"""
-struct FitResult
-    nepochs::Int
-    bin::Int
-    mu::Float64
-    para::Vector
-    stderrors::Vector
-    para_name
-    TN::Vector
-    method::String
-    converged::Bool
-    lp::Float64
-    evidence::Float64
-    opt
-end
-
-function Base.show(io::IO, f::FitResult) 
-    model = (f.nepochs == 1 ? "stationary" : "$(f.nepochs) epochs") *
-            (f.bin > 1 ? " (binned $(f.bin))" : "")
-    print(io, "Fit ", model, " ")
-    print(io, f.method, " ")
-    print(io, f.converged ? "●" : "○", " ")
-    print(io, "[", @sprintf("%.1e",f.para[1]))
-    for i in 2:length(f.para)
-        print(io, " ,", @sprintf("%.1f",f.para[i]))
-    end
-    print(io, "] ", @sprintf("logL %.3f",f.lp), @sprintf(" | evidence %.3f",f.evidence))
-end
-
 # helper functions
 
 function correct_name(s)
@@ -175,7 +142,8 @@ function fit_epochs_integral(hist::StatsBase.Histogram, mu::Float64;
     hess = DemoInfer.getHessian(mle)
     dethess = det(hess)
     
-    at_boundary = map((l,x,u) -> (x<l*1.01) || (x>u/1.01), low, para, upp)
+    at_uboundary = map((x,u) -> (x>u/1.01), para, upp)
+    at_lboundary = map((l,x) -> (x<l*1.01), low, para)
     maxchange = maximum(abs.(para .- init))
     stderrors = fill(Inf, length(para))
     zscore = fill(0.0, length(para))
@@ -218,8 +186,8 @@ function fit_epochs_integral(hist::StatsBase.Histogram, mu::Float64;
         evidence,
         (; 
             mle.optim_result,
-            at_any_boundary = any(at_boundary), 
-            at_boundary,
+            at_any_boundary = any(at_uboundary) || any(at_lboundary), 
+            at_uboundary, at_lboundary,
             low, upp, pinit, init,
             maxchange,
             coeftable = ct, 
