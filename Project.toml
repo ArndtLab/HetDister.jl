@@ -24,4 +24,5 @@ Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 
 [compat]
 Conda = "1.10.2"
+DynamicPPL = "0.31"
 julia = "1.10"
