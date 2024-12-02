@@ -59,13 +59,15 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
         f = perturb_fit!(f, ho_mod, mu, f.para, nepochs, Ltot; by_pass=true, Tlow, Nlow, Nupp)
         if (evd(f) == Inf) || any(f.opt.at_lboundary) || any(f.opt.at_uboundary[2:end]) || isnothing(f.opt.coeftable)
             @info "fit failed, fallback on sequential fit"
-            f = pre_fit(ho_mod, nepochs, mu, Ltot; Tlow, Nlow, Nupp, smallest_segment)
-            if f.nepochs != nepochs
-                @warn "fit failed, chain truncated at iter $iter, consider reducing the number of epochs"
-                break
+            f_ = pre_fit(ho_mod, nepochs, mu, Ltot; Tlow, Nlow, Nupp, smallest_segment)
+            if !isassigned(f_, nepochs)
+                @warn "fit failed, exiting at iter $iter,
+                    consider reducing the number of epochs, currently set at $nepochs"
+                return nullFit(nepochs, mu, init)
+            else
+                f = f_[nepochs]
+                f = perturb_fit!(f, ho_mod, mu, f.para, nepochs, Ltot; by_pass=true, Tlow, Nlow, Nupp)
             end
-            f = f[nepochs]
-            f = perturb_fit!(f, ho_mod, mu, f.para, nepochs, Ltot; by_pass=true, Tlow, Nlow, Nupp)
         end
         
         init = f.para
@@ -81,7 +83,8 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
         if (!any(chain[j].opt.at_lboundary) &&
             !any(chain[j].opt.at_uboundary[3:2:end-1]) &&
             chain[j].converged &&
-            !isinf(evd(chain[j]))
+            !isinf(evd(chain[j])) &&
+            all(chain[j].opt.pvalues .< 0.05)
         )
             if allow_boundary
                 estimate .+= chain[j].para
@@ -152,8 +155,9 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
     smallest_segment::Int = 30    
 )
     f = pre_fit(h_obs, nepochs, mu, Ltot; Tlow, Nlow, Nupp, smallest_segment)
-    if f.nepochs != nepochs
-        @error "fit failed, reduce the number of epochs"
+    if !isassigned(f, nepochs)
+        @warn "fit failed, reduce the number of epochs"
+        return nullFit(nepochs, mu, [])
     end
     f = f[nepochs]
     return fit(h_obs, nepochs, mu, rho, Ltot, get_para(f); 
@@ -174,22 +178,22 @@ Compare the models parameterized by `FitResult`s and return the best one.
 ### Theoretical explanation
 TBD
 """
-function compare_models(models::Vector{FitResult})
+function compare_models(models::Vector{FitResult}; threshold::Float64 = 1.0)
     ms = copy(models)
-    ms = filter(m->all(m.opt.pvalues .< 0.05), ms)
     ms = filter(m->!isinf(evd(m)), ms)
+    ms = filter(m->all(m.opt.pvalues .< 0.05), ms)
     isempty(ms) && @error "none of the models is meaningful"
     while length(ms) > 1
         evidences = evd.(ms)
         best = argmax(evidences)
         ns = pop_sizes(ms[best])
-        std = durations(ms[best])
+        std = sds(ms[best])[2:2:end]
         zscore = fill(0.0, length(ns)-1)
         for i in eachindex(zscore)
             zscore[i] = (ns[i] - ns[i+1]) / sqrt(std[i]^2 + std[i+1]^2)
         end
         p = map(z -> StatsAPI.pvalue(Distributions.Normal(), z; tail=:both), zscore)
-        if all(p .< 0.05)
+        if all(p .< threshold)
             return ms[best]
         else
             deleteat!(ms, best)
