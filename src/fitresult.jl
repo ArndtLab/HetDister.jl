@@ -22,6 +22,23 @@ struct FitResult
     opt
 end
 
+nullFit(nepochs,mu,init) = FitResult(
+    nepochs,
+    0,
+    mu,
+    [],
+    [],
+    nothing,
+    [],
+    "",
+    false,
+    -Inf,
+    -Inf,
+    (;
+        init
+    )
+)
+
 function Base.show(io::IO, f::FitResult) 
     model = (f.nepochs == 1 ? "stationary" : "$(f.nepochs) epochs") *
             (f.bin > 1 ? " (binned $(f.bin))" : "")
