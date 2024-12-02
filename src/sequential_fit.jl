@@ -52,7 +52,7 @@ function perturb_fit!(f::FitResult, h::Histogram, mu::Float64, init::Vector{Floa
         perturbations = mapreduce( i->fill(i, 10), vcat, [0.001, 0.01, 0.1, 0.5, 0.5, 2, 2] )
         for perturbation in perturbations
             f = fit_epochs(h, mu; init, Ltot, perturbation, nepochs, Tupp = 10init[2], kwargs...)
-            if (evd(f) != Inf) && !(bounds_strict(f) && by_pass)
+            if (evd(f) != Inf) && !(bounds_weak(f) && by_pass)
                 break
             end
         end
@@ -106,7 +106,7 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
             @debug "initializer results " t1 t2
 
             if (t1 == 10) && (t2 == 10)
-                @warn "no more meaningful epochs can be added"
+                @info "no more meaningful epochs can be added"
                 return fits
             end
 
@@ -144,12 +144,19 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
                 f = perturb_fit!(f, h, mu, init, i, Ltot; Tlow, Nlow, Nupp)
             end
             if !f.converged
+                @info "pre_fit: not converged, epoch $i"
                 f = perturb_fit!(f, h, mu, init, i, Ltot; by_pass = true, Tlow, Nlow, Nupp)
             end
         end
 
         if any(isnan.(f.para))
+            @info "pre_fit: nan para, epoch $i" f.para
             f = perturb_fit!(f, h, mu, f.opt.init, i, Ltot; by_pass = true, Tlow, Nlow, Nupp)
+        end
+
+        if i > 1 && evd(f) < evd(fits[i-1])
+            @info "no more meaningful epochs can be added"
+            return fits
         end
 
         fits[i] = f
@@ -158,27 +165,18 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
 end
 
 """
-    estimate_nepochs(h::Histogram, mu::Float64, Ltot::Number; kwargs...)
+    estimate_nepochs(h::Histogram, mu::Float64, Ltot::Number; max_nepochs::Int = 10, kwargs...)
 
-Estimate the number of epochs needed to fit the histogram `h` with the model.
+Estimate the number of epochs needed to fit the histogram `h`.
 
 The mutation rate `mu` is assumed to be per base pairs per generation, 
 and the total length of the genome `Ltot` is in base pairs.
 
-Keyword arguments are passed to [`pre_fit`](ref).
+The optional argument `max_nepochs` defines the maximum number of epochs that are explored,
+while the other keyword arguments are passed to [`pre_fit`](ref).
 """
-function estimate_nepochs(h::Histogram, mu::Float64, Ltot::Number; 
-    smallest_segment::Int = 30, kwargs...
-)
-    nepochs = 1
-    f = pre_fit(h, nepochs, mu, Ltot; smallest_segment, kwargs...)[nepochs]
-    t_p = initializer(h, mu, f.para; frame=10, pos = true, smallest_segment)
-    t_n = initializer(h, mu, f.para; frame=10, pos = false, smallest_segment)
-    while !isnothing(t_p) || !isnothing(t_n)
-        nepochs += 1
-        f = pre_fit(h, nepochs, mu, Ltot; smallest_segment, kwargs...)[nepochs]
-        t_p = initializer(h, mu, f.para; frame=10, pos = true, smallest_segment)
-        t_n = initializer(h, mu, f.para; frame=10, pos = false, smallest_segment)
-    end
+function estimate_nepochs(h::Histogram, mu::Float64, Ltot::Number; max_nepochs::Int = 10, kwargs...)
+    fits = pre_fit(h, max_nepochs, mu, Ltot; kwargs...)
+    nepochs = findlast(i->isassigned(fits, i), eachindex(fits))
     return nepochs
 end
