@@ -76,7 +76,7 @@ See also [`FitResult`](@ref).
 - `Tlow::Int=10`: The lower bound for the duration of epochs.
 - `Nlow::Int=10`, `Nupp::Int=100000`: The lower and upper bounds for the population sizes.
 - `smallest_segment::Int=30`: The smallest segment size to consider for the optimization,
-same as in [`fit`](ref).
+same as in [`fit`](@ref).
 """
 function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
     Tlow::Int = 10,
@@ -173,7 +173,7 @@ The mutation rate `mu` is assumed to be per base pairs per generation,
 and the total length of the genome `Ltot` is in base pairs.
 
 The optional argument `max_nepochs` defines the maximum number of epochs that are explored,
-while the other keyword arguments are passed to [`pre_fit`](ref).
+while the other keyword arguments are passed to [`pre_fit`](@ref).
 """
 function estimate_nepochs(h::Histogram, mu::Float64, Ltot::Number; max_nepochs::Int = 10, kwargs...)
     fits = pre_fit(h, max_nepochs, mu, Ltot; kwargs...)
