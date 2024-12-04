@@ -26,7 +26,7 @@ not affected by this limit.
 """
 function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64}; 
     iters::Int = 100,
-    burnin::Int = 1,
+    burnin::Int = 5,
     allow_boundary::Bool = false,
     level::Float64 = 0.95,
     Tlow::Int = 10,
@@ -35,6 +35,7 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
 )
 
     burnin > iters && @error "burnin cannot be greater than iters" 
+    length(init)÷2 == nepochs || @error "init must be in TN format, with 2*nepochs elements"
 
     h_sim = HistogramBinnings.Histogram(h_obs.edges)
     ho_mod = HistogramBinnings.Histogram(h_obs.edges)
@@ -53,7 +54,6 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
         temp = ho_mod.weights .- diff
         temp .= round.(Int, temp)
         ho_mod.weights .= max.(temp, 0)
-
         
         f = fit_epochs(ho_mod, mu; init, Ltot, nepochs, Tupp = 10init[2], Tlow, Nlow, Nupp)
         f = perturb_fit!(f, ho_mod, mu, f.para, nepochs, Ltot; by_pass=true, Tlow, Nlow, Nupp)
@@ -101,6 +101,10 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
             end
         end
     end
+    if sample_size == 0
+        @debug "all fits discarded"
+        return nullFit(nepochs, mu, init)
+    end
     estimate ./= sample_size
     estimate_sd .= sqrt.(estimate_sd./sample_size)
     evidence /= sample_size
@@ -137,7 +141,7 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
         evidence,
         (; 
             init,
-            chain,
+            chain, sample_size,
             zscore,
             pvalues = p, ci_low, ci_high,
         )
@@ -182,7 +186,6 @@ function compare_models(models::Vector{FitResult}; threshold::Float64 = 1.0)
     ms = copy(models)
     ms = filter(m->!isinf(evd(m)), ms)
     ms = filter(m->all(m.opt.pvalues .< 0.05), ms)
-    isempty(ms) && @error "none of the models is meaningful"
     while length(ms) > 1
         evidences = evd.(ms)
         best = argmax(evidences)
@@ -198,6 +201,10 @@ function compare_models(models::Vector{FitResult}; threshold::Float64 = 1.0)
         else
             deleteat!(ms, best)
         end
+    end
+    if isempty(ms)
+        @warn "none of the models is meaningful"
+        return nothing
     end
     return ms[1]
 end
