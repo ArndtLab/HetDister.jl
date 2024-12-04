@@ -49,7 +49,7 @@ function perturb_fit!(f::FitResult, h::Histogram, mu::Float64, init::Vector{Floa
     kwargs...
 )
     if (evd(f) == Inf) || (bounds_strict(f) && by_pass)
-        perturbations = mapreduce( i->fill(i, 10), vcat, [0.001, 0.01, 0.1, 0.5, 0.5, 2, 2] )
+        perturbations = mapreduce( i->fill(i, 10), vcat, [0.001, 0.01, 0.1, 0.5, 0.5, 0.9, 2] )
         for perturbation in perturbations
             f = fit_epochs(h, mu; init, Ltot, perturbation, nepochs, Tupp = 10init[2], kwargs...)
             if (evd(f) != Inf) && !(bounds_weak(f) && by_pass)
@@ -90,7 +90,7 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
             f = fit_epochs(h, mu; nepochs = i, Ltot, Tlow, Nlow, Nupp)
         elseif i == 2
             f = fit_epochs(h, mu; nepochs = i, Ltot, Tlow, Nlow, Nupp)
-            f = perturb_fit!(f, h, mu, f.para, i, Ltot; Tlow, Nlow, Nupp)
+            f = perturb_fit!(f, h, mu, f.para, i, Ltot; Tlow, Nlow, Nupp, by_pass=true)
         else
             t1 = initializer(h, mu, fits[i-1].para; frame, pos = true, smallest_segment)
             if isnothing(t1)
@@ -106,7 +106,7 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
             @debug "initializer results " t1 t2
 
             if (t1 == 10) && (t2 == 10)
-                @info "no more meaningful epochs can be added"
+                @info "no more meaningful epochs can be added (residuals exausted)"
                 return fits
             end
 
@@ -151,13 +151,13 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
 
         if any(isnan.(f.para))
             @info "pre_fit: nan para, epoch $i" f.para
-            f = perturb_fit!(f, h, mu, f.opt.init, i, Ltot; by_pass = true, Tlow, Nlow, Nupp)
-        end
-
-        if i > 1 && evd(f) < evd(fits[i-1])
-            @info "no more meaningful epochs can be added"
             return fits
         end
+
+        # if i > 1 && evd(f) < evd(fits[i-1])
+        #     @info "no more meaningful epochs can be added (evidence)"
+        #     return fits
+        # end
 
         fits[i] = f
     end
