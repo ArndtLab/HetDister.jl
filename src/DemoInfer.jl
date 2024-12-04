@@ -11,9 +11,8 @@ import DynamicPPL, ForwardDiff, Accessors
 using MLDs
 
 using Logging
-disable_logging(Logging.Warn)
-logger = ConsoleLogger(stderr, Logging.Error)
-global_logger(logger)
+logger = ConsoleLogger(stdout, Logging.Error)
+Base.global_logger(logger)
 
 include("fitresult.jl")
 include("mle_optimization.jl")
