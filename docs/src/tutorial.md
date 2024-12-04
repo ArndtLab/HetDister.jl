@@ -1,3 +1,5 @@
+## Tutorial
+
 To run the package, first install julia ([here](https://julialang.org/downloads/)).
 To create a local environment with the package `cd` into your work directory and 
 launch julia, then:
