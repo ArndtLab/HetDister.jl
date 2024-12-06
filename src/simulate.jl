@@ -9,9 +9,8 @@ the IBS segments in the `h`.
     N0 is the ancestral population size and successive pairs of T_i and N_i are the
     durations and sizes of subsequent epochs.
 - `factor`: determine how many genomes are simulated and averaged
-- `smooth`: determine if the simulation is smoothed by a fit
 """
-function get_sim!(params::Vector, h::Histogram, mu::Float64, rho::Float64; factor = 1, smooth::Bool = true)
+function get_sim!(params::Vector, h::Histogram, mu::Float64, rho::Float64; factor = 1)
     L = Int(ceil(params[1])*factor)
     Ns = Int.(ceil.(reverse(params[2:2:end])))
     any(Ns .< 10) && error("Population sizes must be at least 10")
@@ -27,14 +26,4 @@ function get_sim!(params::Vector, h::Histogram, mu::Float64, rho::Float64; facto
     )
     h.weights .= 0
     append!(h, IBSIterator(SMCprime.IBDIterator(pop_sim), pop_sim.mutation_rate))
-    h.weights .= Int.(ceil.(h.weights/factor))
-    if smooth
-        if length(params) < 6
-            f = sequential_fit(h, mu, 3)[end]
-        else
-            f = fit_epochs(h, mu; nepochs = length(params)÷2, init = params, Tupp = 5params[2])
-        end
-        h.weights .= round.(Int, integral_weigths(h.edges[1].edges, mu, f.para))
-        @assert all(h.weights .>= 0)
-    end
 end

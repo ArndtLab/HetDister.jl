@@ -1,6 +1,5 @@
 module DemoInfer
 
-using PyPlot
 using StatsBase, Distributions, HistogramBinnings
 using PopSimIBX
 using LinearAlgebra, Statistics
@@ -11,14 +10,32 @@ using Logging
 import DynamicPPL, ForwardDiff, Accessors
 using MLDs
 
+using Logging
+logger = ConsoleLogger(stdout, Logging.Error)
+Base.global_logger(logger)
+
+include("fitresult.jl")
 include("mle_optimization.jl")
 include("sequential_fit.jl")
 include("simulate.jl")
 include("corrections.jl")
-include("plot_utils.jl")
 
-export get_sim!, sequential_fit, corrected_fit, get_evidence, get_sds,
-    plot_demography, plot_hist, plot_residuals, plot_naive_residuals,
-    xy
+export get_sim!,
+    pre_fit, fit, compare_models, estimate_nepochs,
+    get_para, evd, sds, pop_sizes, durations, get_chain,
+    FitResult
+
+
+function integral_ws(edges::Vector{T}, mu::Float64, TN::Vector) where {T <: Number}
+    a = 0.5
+    last_hid_I = hid_integral(TN, mu, edges[1] - a)
+    weights = Vector{Float64}(undef, length(edges)-1)
+    for i in eachindex(edges[1:end-1])
+        @inbounds this_hid_I = hid_integral(TN, mu, edges[i+1] - a)
+        weights[i] = this_hid_I - last_hid_I
+        last_hid_I = this_hid_I
+    end
+    weights
+end
 
 end

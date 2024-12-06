@@ -1,72 +1,212 @@
 """
-    corrected_fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64; start = 1, iters = 100, final_factor=100)
+    fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number; kwargs...)
+    fit(h_obs, nepochs, mu, rho, Ltot, init::Vector{Float64}; kwargs...)
 
-Fit iteratively the histogram `h_obs` with up to `nepochs` and return a vector of `FitResult` 
-and a vector of matrices `chain` with the parameter vector of each iteration.
+Fit iteratively `h_obs` with a demographic history of piece-wise constant `nepochs`.
+
+Return a vector of `FitResult`, see [`FitResult`](@ref), `mu` and `rho` are
+the mutation and recombination rates, respectively, per base pair per generation
+and `Ltot` is the total length of the genome, in base pairs.
+Optional argument `init` can be used to provide an initial point for the iterations.
 
 # Arguments
-- `h_obs::Histogram`: The histogram to fit.
-- `nepochs::Int`: The maximum number of epochs to fit.
-- `start::Int=1`: The optional starting epoch.
-- `iters::Int=100`: The number of iterations to perform. Suggested value is between 1 and 4.
-- `final_factor::Int=100`: The factor for the final simulation (i.e. how many genomes are simulated). If fitting a cumulative histogram it should be 1.
+- `iters::Int=100`: The number of iterations to perform. Suggested value is at least 10.
+- `burnin::Int=5`: The number of iterations to discard as burnin. Notice that in general
+    already the second iteration is a good sample.
+- `allow_boundary::Bool=false`: If true, the function will allow the fit to reach the upper 
+boundaries of populations sizes. This can be useful if structure is expected because epochs of
+separation between two subpopulations show up as a higher population size (smaller coalescence rate).
+- `level::Float64=0.95`: The confidence level for the confidence intervals on the parameters estimates.
+- `Tlow::Int=10`: The lower bound for the duration of epochs.
+- `Nlow::Int=10`, `Nupp::Int=100000`: The lower and upper bounds for the population sizes.
+- `smallest_segment::Int=30`: The smallest segment size to consider for the optimization.
+This dictates the lower bound which is considered in when initially guessing when to insert 
+a new epoch, i.e. the upper bound for time splits. Notice that the optimization per se is
+not affected by this limit.
 """
-function corrected_fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64; start = 1, iters = 100, final_factor=100)
+function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64}; 
+    iters::Int = 100,
+    burnin::Int = 5,
+    allow_boundary::Bool = false,
+    level::Float64 = 0.95,
+    Tlow::Int = 10,
+    Nlow::Int = 10, Nupp::Int = 100000,
+    smallest_segment::Int = 30    
+)
+
+    burnin > iters && @error "burnin cannot be greater than iters" 
+    length(init)÷2 == nepochs || @error "init must be in TN format, with 2*nepochs elements"
+
     h_sim = HistogramBinnings.Histogram(h_obs.edges)
     ho_mod = HistogramBinnings.Histogram(h_obs.edges)
-    raw_fits = sequential_fit(h_obs, mu, nepochs)
-    chains = []
-    results = []
 
-    for i in start:nepochs
-        init = raw_fits[i].para
-        chain = Matrix{Float64}(undef, iters+1, 2i)
-        chain[1, :] .= init
+    chain = FitResult[]
 
-        for iters in 1:iters
-            weights_th = integral_weigths(h_obs.edges[1].edges, mu, init)
-            factor = any(init[3:3:end] ./ init[4:2:end] .> 1) ? 20 : 1
-            get_sim!(init, h_sim, mu, rho, factor=factor)
-        
-            ho_mod.weights .= h_obs.weights
-        
-            diff = (h_sim.weights .- weights_th)
-            temp = ho_mod.weights .- diff
-            temp .= max.(temp, 0)
-            ho_mod.weights .= Int.(ceil.(temp))
-
-            f = fit_epochs(ho_mod, mu; init, nepochs = i, Tlow = 10, Tupp = 5init[2])
-            f = perturb_fit!(f, ho_mod, mu, f.para, i, by_pass=true)
-            if (f.opt.evidence == Inf) || f.opt.at_any_boundary || isnothing(f.opt.coeftable)
-                f = sequential_fit(ho_mod, mu, i)[i]
-                f = perturb_fit!(f, ho_mod, mu, f.para, i, by_pass=true)
-            end
-            init = f.para
-            chain[1+iters, :] .= init
-        end
-
-        estimate = mean(chain[2:end,:], dims=1)[1,:]
-
-        weights_th = integral_weigths(h_obs.edges[1].edges, mu, estimate)
-        get_sim!(estimate, h_sim, mu, rho, factor=final_factor);
-
+    for iter in 1:iters
+        weights_th = integral_ws(h_obs.edges[1].edges, mu, init)
+        # factor = any( (init[3:2:end] ./ init[4:2:end]) .> 1 ) ? 20 : 1
+        factor = 1
+        get_sim!(init, h_sim, mu, rho, factor=factor)
+    
         ho_mod.weights .= h_obs.weights
-
-        diff = h_sim.weights .- weights_th
+    
+        diff = (h_sim.weights/factor .- weights_th)
         temp = ho_mod.weights .- diff
-        temp .= max.(temp, 0)
-        ho_mod.weights .= Int.(ceil.(temp))
-        final_fit = fit_epochs(ho_mod, mu; init=estimate, nepochs = i, Tupp = 5estimate[2])
-        final_fit = perturb_fit!(final_fit, ho_mod, mu, final_fit.para, i, by_pass=true)
-        if (final_fit.opt.evidence == Inf) || final_fit.opt.at_any_boundary || isnothing(final_fit.opt.coeftable)
-            final_fit = sequential_fit(ho_mod, mu, i)[i]
-            final_fit = perturb_fit!(final_fit, ho_mod, mu, final_fit.para, i, by_pass=true)
+        temp .= round.(Int, temp)
+        ho_mod.weights .= max.(temp, 0)
+        
+        f = fit_epochs(ho_mod, mu; init, Ltot, nepochs, Tupp = 10init[2], Tlow, Nlow, Nupp)
+        f = perturb_fit!(f, ho_mod, mu, f.para, nepochs, Ltot; by_pass=true, Tlow, Nlow, Nupp)
+        if (evd(f) == Inf) || any(f.opt.at_lboundary) || any(f.opt.at_uboundary[2:end]) || isnothing(f.opt.coeftable)
+            @info "fit failed, fallback on sequential fit"
+            f_ = pre_fit(ho_mod, nepochs, mu, Ltot; Tlow, Nlow, Nupp, smallest_segment)
+            if !isassigned(f_, nepochs)
+                @warn "fit failed, exiting at iter $iter,
+                    consider reducing the number of epochs, currently set at $nepochs"
+                return nullFit(nepochs, mu, init)
+            else
+                f = f_[nepochs]
+                f = perturb_fit!(f, ho_mod, mu, f.para, nepochs, Ltot; by_pass=true, Tlow, Nlow, Nupp)
+            end
         end
-        println(final_fit.opt.coeftable)
-        println("log-evidence: ", final_fit.opt.evidence)
-        push!(results, final_fit)
-        push!(chains, chain)
+
+        init = f.para
+        push!(chain, f)
     end
 
-    return results, chains
+    estimate = zeros(length(chain[1].para))
+    estimate_sd = zeros(length(chain[1].para))
+    evidence = 0
+    lp = 0
+    sample_size = 0
+    for j in burnin:iters
+        if (!any(chain[j].opt.at_lboundary) &&
+            !any(chain[j].opt.at_uboundary[3:2:end-1]) &&
+            chain[j].converged &&
+            !isinf(evd(chain[j])) &&
+            all(chain[j].opt.pvalues .< 0.05)
+        )
+            if allow_boundary
+                estimate .+= chain[j].para
+                estimate_sd .+= sds(chain[j]) .^2
+                evidence += evd(chain[j])
+                lp += chain[j].lp
+                sample_size += 1
+            elseif !any(chain[j].opt.at_uboundary[2:2:end])
+                estimate .+= chain[j].para
+                estimate_sd .+= sds(chain[j]) .^2
+                evidence += evd(chain[j])
+                lp += chain[j].lp
+                sample_size += 1
+            end
+        end
+    end
+    if sample_size == 0
+        @debug "all fits discarded"
+        return nullFit(nepochs, mu, init)
+    end
+    estimate ./= sample_size
+    estimate_sd .= sqrt.(estimate_sd./sample_size)
+    evidence /= sample_size
+    lp /= sample_size
+    
+    zscore = fill(0.0, length(estimate))
+    p = fill(1, length(estimate))
+    ci_low = fill(-Inf, length(estimate))
+    ci_high = fill(Inf, length(estimate))
+    try 
+        zscore = estimate ./ estimate_sd
+        p = map(z -> StatsAPI.pvalue(Distributions.Normal(), z; tail=:both), zscore)
+    
+        # Confidence interval (CI)
+        q = Statistics.quantile(Distributions.Normal(), (1 + level) / 2)
+        ci_low = para .- q .* estimate_sd
+        ci_high = para .+ q .* estimate_sd
+    catch
+        # most likely computing stderrors failed
+        # we stay with the default values
+    end
+
+    final_fit = FitResult(
+        nepochs,
+        chain[end].bin,
+        chain[end].mu,
+        estimate,
+        estimate_sd,
+        chain[end].para_name,
+        estimate,
+        "iterative fit",
+        true,
+        lp,
+        evidence,
+        (; 
+            init,
+            chain, sample_size,
+            zscore,
+            pvalues = p, ci_low, ci_high,
+        )
+    )
+
+    return final_fit
+end
+
+function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number;
+    iters::Int = 100,
+    burnin::Int = 5,
+    allow_boundary::Bool = false,
+    level::Float64 = 0.95,
+    Tlow::Int = 10,
+    Nlow::Int = 10, Nupp::Int = 100000,
+    smallest_segment::Int = 30    
+)
+    f = pre_fit(h_obs, nepochs, mu, Ltot; Tlow, Nlow, Nupp, smallest_segment)
+    if !isassigned(f, nepochs)
+        @warn "fit failed, reduce the number of epochs"
+        return nullFit(nepochs, mu, [])
+    end
+    f = f[nepochs]
+    return fit(h_obs, nepochs, mu, rho, Ltot, get_para(f); 
+        iters,
+        burnin,
+        allow_boundary,
+        level,
+        Tlow,
+        Nlow, Nupp,
+        smallest_segment=smallest_segment
+    )
+end
+
+"""
+    compare_models(models::Vector{FitResult})
+
+Compare the models parameterized by `FitResult`s and return the best one.
+
+### Theoretical explanation
+TBD
+"""
+function compare_models(models::Vector{FitResult}; threshold::Float64 = 1.0)
+    ms = copy(models)
+    ms = filter(m->!isinf(evd(m)), ms)
+    ms = filter(m->all(m.opt.pvalues .< 0.05), ms)
+    while length(ms) > 1
+        evidences = evd.(ms)
+        best = argmax(evidences)
+        ns = pop_sizes(ms[best])
+        std = sds(ms[best])[2:2:end]
+        zscore = fill(0.0, length(ns)-1)
+        for i in eachindex(zscore)
+            zscore[i] = (ns[i] - ns[i+1]) / sqrt(std[i]^2 + std[i+1]^2)
+        end
+        p = map(z -> StatsAPI.pvalue(Distributions.Normal(), z; tail=:both), zscore)
+        if all(p .< threshold)
+            return ms[best]
+        else
+            deleteat!(ms, best)
+        end
+    end
+    if isempty(ms)
+        @warn "none of the models is meaningful"
+        return nothing
+    end
+    return ms[1]
 end
