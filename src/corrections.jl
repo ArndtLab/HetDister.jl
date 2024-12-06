@@ -1,6 +1,6 @@
 """
     fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number; kwargs...)
-    fit(h_obs, nepochs, mu, rho, Ltot, init::Vector{Number}; kwargs...)
+    fit(h_obs, nepochs, mu, rho, Ltot, init::Vector{Float64}; kwargs...)
 
 Fit iteratively `h_obs` with a demographic history of piece-wise constant `nepochs`.
 
@@ -11,7 +11,7 @@ Optional argument `init` can be used to provide an initial point for the iterati
 
 # Arguments
 - `iters::Int=100`: The number of iterations to perform. Suggested value is at least 10.
-- `burnin::Int=1`: The number of iterations to discard as burnin. Notice that in general
+- `burnin::Int=5`: The number of iterations to discard as burnin. Notice that in general
     already the second iteration is a good sample.
 - `allow_boundary::Bool=false`: If true, the function will allow the fit to reach the upper 
 boundaries of populations sizes. This can be useful if structure is expected because epochs of
@@ -69,7 +69,7 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
                 f = perturb_fit!(f, ho_mod, mu, f.para, nepochs, Ltot; by_pass=true, Tlow, Nlow, Nupp)
             end
         end
-        
+
         init = f.para
         push!(chain, f)
     end
@@ -152,6 +152,7 @@ end
 
 function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number;
     iters::Int = 100,
+    burnin::Int = 5,
     allow_boundary::Bool = false,
     level::Float64 = 0.95,
     Tlow::Int = 10,
@@ -166,6 +167,7 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
     f = f[nepochs]
     return fit(h_obs, nepochs, mu, rho, Ltot, get_para(f); 
         iters,
+        burnin,
         allow_boundary,
         level,
         Tlow,

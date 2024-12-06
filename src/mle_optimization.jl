@@ -123,7 +123,7 @@ function fit_epochs_integral(hist::StatsBase.Histogram, mu::Float64;
             if perturbation < 1
                 rand(truncated(LogNormal(log(p), perturbation), l, u))
             else
-                rand(Uniform(l, u))
+                rand(Uniform(l, u)) # maybe TriangularDist(l, u, p) ?
             end
         end
     end

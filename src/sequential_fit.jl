@@ -154,11 +154,6 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
             return fits
         end
 
-        # if i > 1 && evd(f) < evd(fits[i-1])
-        #     @info "no more meaningful epochs can be added (evidence)"
-        #     return fits
-        # end
-
         fits[i] = f
     end
     return fits
@@ -178,5 +173,11 @@ while the other keyword arguments are passed to [`pre_fit`](@ref).
 function estimate_nepochs(h::Histogram, mu::Float64, Ltot::Number; max_nepochs::Int = 10, kwargs...)
     fits = pre_fit(h, max_nepochs, mu, Ltot; kwargs...)
     nepochs = findlast(i->isassigned(fits, i), eachindex(fits))
+    fits = fits[1:nepochs]
+    fits = filter(m->!isinf(evd(m)), fits)
+    bestev = argmax(evd.(fits))
+    if bestev < nepochs
+        nepochs = fits[bestev].nepochs
+    end
     return nepochs
 end
