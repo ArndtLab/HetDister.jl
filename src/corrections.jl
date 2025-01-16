@@ -40,6 +40,8 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
     h_sim = HistogramBinnings.Histogram(h_obs.edges)
     ho_mod = HistogramBinnings.Histogram(h_obs.edges)
 
+    fop = FitOptions(Ltot; nepochs, init, Tlow, Nlow, Nupp)
+
     chain = FitResult[]
 
     for iter in 1:iters
@@ -55,22 +57,24 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
         temp .= round.(Int, temp)
         ho_mod.weights .= max.(temp, 0)
         
-        f = fit_epochs(ho_mod, mu; init, Ltot, nepochs, Tupp = 10init[2], Tlow, Nlow, Nupp)
-        f = perturb_fit!(f, ho_mod, mu, f.para, nepochs, Ltot; by_pass=true, Tlow, Nlow, Nupp)
+        updateTupp!(fop, 10init[2])
+        f = fit_model_epochs(ho_mod, mu, fop)
+        f = perturb_fit!(f, ho_mod, mu, fop)
         if (evd(f) == Inf) || any(f.opt.at_lboundary) || any(f.opt.at_uboundary[2:end]) || isnothing(f.opt.coeftable)
             @info "fit failed, fallback on sequential fit"
-            f_ = pre_fit(ho_mod, nepochs, mu, Ltot; Tlow, Nlow, Nupp, smallest_segment)
+            f_ = pre_fit(ho_mod, nepochs, mu, Ltot; smallest_segment)
             if !isassigned(f_, nepochs)
                 @warn "fit failed, exiting at iter $iter,
                     consider reducing the number of epochs, currently set at $nepochs"
-                return nullFit(nepochs, mu, init)
+                # return nullFit(nepochs, mu, init)
             else
                 f = f_[nepochs]
-                f = perturb_fit!(f, ho_mod, mu, f.para, nepochs, Ltot; by_pass=true, Tlow, Nlow, Nupp)
+                f = perturb_fit!(f, ho_mod, mu, fop)
             end
         end
 
         init = f.para
+        setinit!(fop, init)
         push!(chain, f)
     end
 
@@ -103,7 +107,7 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
     end
     if sample_size == 0
         @debug "all fits discarded"
-        return nullFit(nepochs, mu, init)
+        return nullFit(nepochs, mu, init, chain)
     end
     estimate ./= sample_size
     estimate_sd .= sqrt.(estimate_sd./sample_size)
@@ -162,7 +166,7 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
     f = pre_fit(h_obs, nepochs, mu, Ltot; Tlow, Nlow, Nupp, smallest_segment)
     if !isassigned(f, nepochs)
         @warn "fit failed, reduce the number of epochs"
-        return nullFit(nepochs, mu, [])
+        return nullFit(nepochs, mu, [], [])
     end
     f = f[nepochs]
     return fit(h_obs, nepochs, mu, rho, Ltot, get_para(f); 
