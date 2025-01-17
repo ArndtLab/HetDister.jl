@@ -22,7 +22,7 @@ struct FitResult
     opt
 end
 
-nullFit(nepochs,mu,init) = FitResult(
+nullFit(nepochs,mu,init,chain=nothing) = FitResult(
     nepochs,
     0,
     mu,
@@ -35,7 +35,8 @@ nullFit(nepochs,mu,init) = FitResult(
     -Inf,
     -Inf,
     (;
-        init
+        init,
+        chain
     )
 )
 
@@ -47,7 +48,7 @@ function Base.show(io::IO, f::FitResult)
     print(io, f.converged ? "●" : "○", " ")
     print(io, "[", @sprintf("%.1e",f.para[1]))
     for i in 2:length(f.para)
-        print(io, " ,", @sprintf("%.1f",f.para[i]))
+        print(io, ", ", @sprintf("%.1f",f.para[i]))
     end
     print(io, "] ", @sprintf("logL %.3f",f.lp), @sprintf(" | evidence %.3f",f.evidence))
 end
@@ -57,14 +58,14 @@ end
 
 Return the parameters of the fit.
 """
-get_para(fit::FitResult) = fit.para
+get_para(fit::FitResult) = copy(fit.para)
 
 """
     sds(fit::FitResult)
 
 Return the standard deviations of the parameters of the fit.
 """
-sds(fit::FitResult) = fit.stderrors
+sds(fit::FitResult) = copy(fit.stderrors)
 
 """
     evd(fit::FitResult)
@@ -104,4 +105,103 @@ function get_chain(fit::FitResult)
         sds(x)
     end
     return p, sd
+end
+
+mutable struct Perturbation
+    isrnd::Bool
+    factor::Float64
+    par::Int
+end
+
+abstract type FitKind end
+
+struct EpochsFit <: FitKind end
+struct SizesFit <: FitKind end
+
+npar(nepochs::Int, ::EpochsFit) = 2nepochs
+npar(nepochs::Int, ::SizesFit) = nepochs + 1
+
+mutable struct FitOptions{T<:FitKind}
+    nepochs::Int
+    Ltot::Number
+    init::Vector{Float64}
+    Ts::Vector{Float64}
+    perturbations::Vector{Perturbation}
+    solver
+    opt
+    low::Vector{Float64}
+    upp::Vector{Float64}
+    level::Float64
+end
+
+npar(fop::FitOptions{T}) where {T<:FitKind} = npar(fop.nepochs, T())
+
+function FitOptions(Ltot::Number;
+    kind::FitKind = EpochsFit(),
+    nepochs = 1,
+    init = nothing,
+    Ts = nothing,
+    perturbations = Perturbation[],
+    solver = LBFGS(),
+    opt = Optim.Options(;iterations = 20000, allow_f_increases=true, time_limit = 600, g_tol = 5e-8),
+    Tlow = 10, Tupp = 1e5,
+    Nlow = 10, Nupp = 1e5,
+    level = 0.95
+)
+    N = npar(nepochs, kind)
+    if isnothing(init)
+        init = zeros(N)
+    else
+        @assert length(init) == N
+    end
+    if isnothing(Ts)
+        Ts = zeros(N-2)
+    else
+        @assert length(Ts) == N-2
+    end
+    @assert length(perturbations) <= N
+    upp = zeros(N)
+    low = zeros(N)
+    if kind isa EpochsFit
+        upp[2:2:end] .= Nupp
+        low[2:2:end] .= Nlow
+        upp[3:2:end-1] .= Tupp
+        low[3:2:end-1] .= Tlow
+    elseif kind isa SizesFit
+        upp[2:end] .= Nupp
+        low[2:end] .= Nlow
+    end
+    upp[1] = Ltot * 1.01
+    low[1] = Ltot * 0.5
+
+    return FitOptions{typeof(kind)}(
+        nepochs,
+        Ltot,
+        init,
+        Ts,
+        perturbations,
+        solver,
+        opt,
+        low,
+        upp,
+        level
+    )
+end
+
+function updateTupp!(fop::FitOptions{EpochsFit}, Tupp)
+    fop.upp[3:2:end-1] .= Tupp
+    return nothing
+end
+
+function setinit!(fop::FitOptions{T}, h::Histogram, mu::Float64) where {T<:FitKind}
+    N = 1/(4*mu*(fop.Ltot/sum(h.weights)))
+    fop.init[1] = fop.Ltot
+    n = npar(fop.nepochs, T())
+    fop.init[2:end] .= N .* (0.99 .+ rand(n-1) .* 0.02)
+    return nothing
+end
+
+function setinit!(fop::FitOptions{T}, init::Vector{Float64}) where {T<:FitKind}
+    fop.init .= init
+    return nothing
 end
