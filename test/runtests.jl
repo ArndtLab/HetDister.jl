@@ -30,7 +30,7 @@ itr = Base.Iterators.product(mus,rhos,TNs)
 
 @testset "Preliminary fit: mu=$mu, rho=$rho, scenario $TN" for (mu,rho,TN) in itr
 
-    h = Histogram(LogEdgeVector(lo = 30, hi = 1_000_000, nbins = 200))
+    h = Histogram(LogEdgeVector(lo = 1, hi = 1_000_000, nbins = 200))
     get_sim!(TN, h, mu, rho)
 
     nmax = estimate_nepochs(h, mu, TN[1])
@@ -38,29 +38,26 @@ itr = Base.Iterators.product(mus,rhos,TNs)
     nepochs = findlast(i->isassigned(res, i), eachindex(res))
     res = res[1:nepochs]
 
-    @test all(map(x->x.converged, res)) skip = true
-    @test isnothing(
-        DemoInfer.initializer(h, mu, res[end].para; frame = 20, pos = true)) && 
-        isnothing(DemoInfer.initializer(h, mu, res[end].para; frame = 20, pos = false)
-    ) skip = true
+    @test (nmax == nepochs)
+    @test all(map(x->x.converged, res))
+    @test iszero(DemoInfer.initializer(h, mu, res[end].para; frame = 20, pos = true)) 
+    @test iszero(DemoInfer.initializer(h, mu, res[end].para; frame = 20, pos = false))
 end
 
 @testset "Fit: mu=$mu, rho=$rho, scenario $TN" for (mu,rho,TN) in itr
 
-    h = Histogram(LogEdgeVector(lo = 30, hi = 1_000_000, nbins = 200))
+    h = Histogram(LogEdgeVector(lo = 1, hi = 1_000_000, nbins = 200))
     get_sim!(TN, h, mu, rho)
 
-    nmax = estimate_nepochs(h, mu, TN[1])
+    # nmax = estimate_nepochs(h, mu, TN[1])
+    nmax = 3
 
-    res = map(n->DemoInfer.fit(h, n, mu, rho, TN[1], iters = 60), 1:nmax)
+    res = map(n->DemoInfer.fit(h, n, mu, rho, TN[1], iters = 30), 1:nmax)
     
-    best_model = compare_models(res)
+    best_model = compare_models(res, threshold = 0.05)
 
-    @test best_model.nepochs == length(TN)÷2 skip = true
-    @test all(
-        (get_para(best_model) .- 3sds(best_model)) .< TN .< 
-        (get_para(best_model) .+ 3sds(best_model))
-    ) skip = true
+    @test !isnothing(best_model)
+    @test best_model.nepochs == length(TN)÷2
     
     pred_sim = Histogram(h.edges)
     get_sim!(get_para(best_model), pred_sim, mu, rho)
