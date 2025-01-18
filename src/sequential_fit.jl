@@ -67,7 +67,7 @@ function perturb_fit!(f::FitResult, h::Histogram, mu::Float64, fop::FitOptions;
             for fct in factors
                 perturbations = Perturbation[]
                 for i in eachindex(f.para)
-                    if f.opt.at_lboundary[i] || f.opt.at_uboundary[i]
+                    if f.opt.at_lboundary[i] || (f.opt.at_uboundary[i] && i > 1)
                         push!(perturbations, Perturbation(isrnd, fct, i))
                     end
                 end
