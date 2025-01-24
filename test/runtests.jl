@@ -52,7 +52,7 @@ end
     # nmax = estimate_nepochs(h, mu, TN[1])
     nmax = 3
 
-    res = map(n->DemoInfer.fit(h, n, mu, rho, TN[1], iters = 30), 1:nmax)
+    res = map(n->DemoInfer.fit(h, n, mu, rho, TN[1], iters = 1, factor=100), 1:nmax)
     
     best_model = compare_models(res, threshold = 0.05)
 
