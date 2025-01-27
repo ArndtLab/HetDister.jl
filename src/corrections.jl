@@ -194,7 +194,7 @@ Compare the models parameterized by `FitResult`s and return the best one.
 ### Theoretical explanation
 TBD
 """
-function compare_models(models::Vector{FitResult}; threshold::Float64 = 1.0)
+function compare_models(models::Vector{FitResult}; threshold::Float64 = 0.05)
     ms = copy(models)
     ms = filter(m->!isinf(evd(m)), ms)
     ms = filter(m->all(m.opt.pvalues .< 0.05), ms)

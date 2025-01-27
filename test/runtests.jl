@@ -59,9 +59,13 @@ end
     @test !isnothing(best_model)
     @test best_model.nepochs == length(TN)÷2
     
-    pred_sim = Histogram(h.edges)
-    get_sim!(get_para(best_model), pred_sim, mu, rho)
-    ressq = (h.weights .- pred_sim.weights) .^2 ./ (h.weights .+ pred_sim.weights)
+    corr = try
+        best_model.opt.corrections[1]
+    catch
+        best_model.opt.chain[2][1]
+    end
+    pred_w = DemoInfer.integral_ws(h.edges[1].edges, mu, get_para(best_model)) + corr
+    ressq = (h.weights .- pred_w) .^2 ./ (h.weights .+ pred_w)
     ressq = filter(!isnan, ressq)
     chisq = sum(ressq)
     k = length(ressq)
