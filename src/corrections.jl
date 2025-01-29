@@ -194,29 +194,15 @@ Compare the models parameterized by `FitResult`s and return the best one.
 ### Theoretical explanation
 TBD
 """
-function compare_models(models::Vector{FitResult}; threshold::Float64 = 0.05)
+function compare_models(models::Vector{FitResult})
     ms = copy(models)
     ms = filter(m->!isinf(evd(m)), ms)
     ms = filter(m->all(m.opt.pvalues .< 0.05), ms)
-    while length(ms) > 1
+    if length(ms) > 0
         evidences = evd.(ms)
         best = argmax(evidences)
-        ns = pop_sizes(ms[best])
-        std = sds(ms[best])[2:2:end]
-        zscore = fill(0.0, length(ns)-1)
-        for i in eachindex(zscore)
-            zscore[i] = (ns[i] - ns[i+1]) / sqrt(std[i]^2 + std[i+1]^2)
-        end
-        p = map(z -> StatsAPI.pvalue(Distributions.Normal(), z; tail=:both), zscore)
-        if all(p .< threshold)
-            return ms[best]
-        else
-            deleteat!(ms, best)
-        end
+        return ms[best]
     end
-    if isempty(ms)
-        @warn "none of the models is meaningful"
-        return nothing
-    end
-    return ms[1]
+    @warn "none of the models is meaningful"
+    return nothing
 end

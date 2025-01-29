@@ -117,8 +117,6 @@ See also [`FitResult`](@ref).
 same as in [`fit`](@ref).
 """
 function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
-    Tlow::Int = 10,
-    Nlow::Int = 10, Nupp::Int = 100000,
     smallest_segment::Int = 30
 )
     frame = 20
@@ -195,7 +193,7 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
                     newT2 = max(newT2, 20)
                 end
                 newN = init[2split_epoch]
-                # newN > (Nupp / 1.01) && (newN = fits[1].para[2])
+                newN > (fop.upp[2split_epoch] / 1.01) && (newN = N0)
                 init[2split_epoch-1] = newT1
                 insert!(init, 2split_epoch, newT2)
                 insert!(init, 2split_epoch, newN)
