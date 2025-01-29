@@ -7,10 +7,9 @@ function initializer(h::Histogram, mu::Float64, prev_para::Vector{T};
 ) where {T <: Number}
 
     # find approximate time of positive (negative) deviation from previous fit
-    w_th = integral_ws(h.edges[1].edges, mu, prev_para)
     r = midpoints(h.edges[1])
-    residuals = pos ? (h.weights - w_th) ./ sqrt.(h.weights) : (w_th - h.weights) ./ sqrt.(h.weights)
-    residuals[h.weights .== 0] .= 0
+    residuals = compute_residuals(h, mu, prev_para)
+    if !pos residuals = -residuals end
 
     divide = zeros(Int, length(residuals))
     divide[(residuals .> threshold) .& (r .>= smallest_segment)] .= 1
