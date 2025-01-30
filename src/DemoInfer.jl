@@ -11,7 +11,7 @@ import DynamicPPL, ForwardDiff, Accessors
 using MLDs
 
 using Logging
-logger = ConsoleLogger(stdout, Logging.Error)
+logger = ConsoleLogger(stdout, Logging.Debug)
 Base.global_logger(logger)
 
 include("fitresult.jl")
@@ -41,7 +41,8 @@ end
 
 function compute_residuals(h::Histogram, mu::Float64, TN::Vector)
     w_th = integral_ws(h.edges[1].edges, mu, TN)
-    w_ = copy(h.weights)
+    w_ = zeros(length(h.weights))
+    w_ .= h.weights
     # when the observation is zero, we infer the rate of the Poisson process from the
     # neighbouring bins epxloiting the relation between them given by the model
     w_[h.weights .== 0] .= w_th[h.weights .== 0]

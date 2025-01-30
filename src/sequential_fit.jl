@@ -169,9 +169,10 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
 
             init = copy(fits[i-1].para)
             N0 = fits[1].para[2]
-            t = min(t, 12N0) # permissive upper bound to 12 times the ancestral population size. It can anyway vary during the optimization
-            ts = reverse(pushfirst!(cumsum(init[end:-2:3]),0))
+            t = min(t, 12N0) # permissive upper bound to 12 times the ancestral population size
+            ts = reverse(pushfirst!(cumsum(init[end-1:-2:3]),0))
             split_epoch = findfirst(ts .< t)
+            @debug "split epoch " split_epoch
 
             if split_epoch == 1
                 newT = t - ts[1]
@@ -180,19 +181,14 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
                 insert!(init, 3, newN)
                 insert!(init, 3, newT)
             else
-                if iszero(t)
-                    newT1 = (ts[end-1] - ts[end]) / 2
-                    newT1 = max(newT1, 20)
-                    newT2 = newT1
-                    @assert(split_epoch == length(ts), "split_epoch: $split_epoch, length(ts): $(length(ts))")
-                else
-                    newT1 = ts[split_epoch-1] - t
-                    newT1 = max(newT1, 20)
-                    newT2 = t - ts[split_epoch]
-                    newT2 = max(newT2, 20)
-                end
+                newT1 = ts[split_epoch-1] - t
+                newT1 = max(newT1, 20)
+                newT2 = t - ts[split_epoch]
+                newT2 = max(newT2, 20)
                 newN = init[2split_epoch]
-                newN > (fop.upp[2split_epoch] / 1.01) && (newN = N0)
+                if newN > (fop.upp[2split_epoch] / 1.01)
+                    newN = N0
+                end
                 init[2split_epoch-1] = newT1
                 insert!(init, 2split_epoch, newT2)
                 insert!(init, 2split_epoch, newN)
