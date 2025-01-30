@@ -16,7 +16,7 @@ mus = [2.36e-8, 1.25e-8, 1e-8]
 rhos = [1e-8]
 itr = Base.Iterators.product(mus,rhos,TNs)
 
-@test "Fit: mu=$mu, rho=$rho, scenario $TN" for (mu,rho,TN) in itr
+@testset "Fit: mu=$mu, rho=$rho, scenario $TN" for (mu,rho,TN) in itr
 
     h = Histogram(LogEdgeVector(lo = 1, hi = 1_000_000, nbins = 200))
     get_sim!(TN, h, mu, rho)
@@ -25,7 +25,7 @@ itr = Base.Iterators.product(mus,rhos,TNs)
 
     res = map(n->DemoInfer.fit(h, n, mu, rho, TN[1], iters = 1, factor=100), 1:nmax)
     
-    best_model = compare_models(res, threshold = 0.05)
+    best_model = compare_models(res)
 
     @test !isnothing(best_model)
     @test best_model.nepochs == length(TN)÷2
