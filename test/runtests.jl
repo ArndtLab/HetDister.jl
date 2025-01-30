@@ -59,11 +59,7 @@ end
     @test !isnothing(best_model)
     @test best_model.nepochs == length(TN)÷2
     
-    corr = try
-        best_model.opt.corrections[1]
-    catch
-        best_model.opt.chain[2][1]
-    end
+    corr = best_model.opt.corrections[1]
     pred_w = DemoInfer.integral_ws(h.edges[1].edges, mu, get_para(best_model)) + corr
     ressq = (h.weights .- pred_w) .^2 ./ (h.weights .+ pred_w)
     ressq = filter(!isnan, ressq)
