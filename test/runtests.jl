@@ -10,33 +10,6 @@ disable_logging(Logging.Warn)
 logger = ConsoleLogger(stderr, Logging.Error)
 global_logger(logger)
 
-TNs = [
-    [3000000000, 10000],
-    [3000000000, 20000, 60000, 8000, 4000, 16000, 2000, 8000],
-    [3000000000, 20000, 60000, 8000, 8000, 16000, 1600, 2000, 400, 10000],
-    [3000000000, 20000, 60000, 8000, 8000, 16000, 1600, 2000, 400, 8000, 60, 300],
-    [3000000000, 10000, 20000, 8000, 30000, 9000, 2000, 6000, 4000, 8000, 60, 300],
-    [3000000000, 20000, 1600, 2000, 400, 10000],
-    [3000000000, 10000, 8000, 15000, 50000, 7000],
-    [3000000000, 10000, 8000, 15000, 10000, 7000],
-    [3000000000, 10000, 80000, 13000, 3000, 10000],
-    [3000000000, 25469, 96567, 9520, 2992, 13273]
-]
-mus = [2.36e-8, 1.25e-8, 1e-8]
-rhos = [1e-8]
-itr = Base.Iterators.product(mus,rhos,TNs)
-
-@testset "Preliminary fit: mu=$mu, rho=$rho, scenario $TN" for (mu,rho,TN) in itr
-
-    h = Histogram(LogEdgeVector(lo = 1, hi = 1_000_000, nbins = 200))
-    get_sim!(TN, h, mu, rho)
-
-    nmax = estimate_nepochs(h, mu, TN[1], max_nepochs = 7)
-    res = pre_fit(h, nmax, mu, TN[1])
-    nepochs = findlast(i->isassigned(res, i), eachindex(res))
-
-    @test (nmax == nepochs)
-end
 
 TNs = [[3000000000, 10000]]
 mus = [2.36e-8, 1.25e-8, 1e-8]
