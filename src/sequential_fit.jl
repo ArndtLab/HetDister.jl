@@ -116,13 +116,14 @@ See also [`FitResult`](@ref).
 same as in [`fit`](@ref).
 """
 function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
+    Tlow::Int=10, Nlow::Int=10, Nupp::Int=100000,
     smallest_segment::Int = 30
 )
     frame = 20
     fits = Vector{FitResult}(undef, nfits)
     tprevious = [0.]
     for i in 1:nfits
-        fop = FitOptions(Ltot; nepochs = i)
+        fop = FitOptions(Ltot; nepochs = i, Tlow, Nlow, Nupp)
         if i == 1
             f = fit_model_epochs(h, mu, fop)
             push!(tprevious, 20 * f.para[2])

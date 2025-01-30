@@ -65,7 +65,7 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
         f = perturb_fit!(f, ho_mod, mu, fop)
         if (evd(f) == Inf) || any(f.opt.at_lboundary) || any(f.opt.at_uboundary[2:end]) || isnothing(f.opt.coeftable)
             @info "fit failed, fallback on sequential fit"
-            f_ = pre_fit(ho_mod, nepochs, mu, Ltot; smallest_segment)
+            f_ = pre_fit(ho_mod, nepochs, mu, Ltot; Tlow, Nlow, Nupp, smallest_segment)
             if !isassigned(f_, nepochs)
                 @warn "fit failed, exiting at iter $iter,
                     consider reducing the number of epochs, currently set at $nepochs"
