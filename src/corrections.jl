@@ -88,7 +88,7 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
     lp = 0
     sample_size = 0
     for j in burnin:iters
-        if (!any(chain[j].opt.at_lboundary) &&
+        if (!any(chain[j].opt.at_lboundary[1:end-2]) &&
             !any(chain[j].opt.at_uboundary[3:2:end-1]) &&
             chain[j].converged &&
             !isinf(evd(chain[j])) &&

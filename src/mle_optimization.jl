@@ -192,7 +192,8 @@ function fit_model_epochs(hist::StatsBase.Histogram, mu::Float64, options::FitOp
     ci_low = fill(-Inf, length(para))
     ci_high = fill(Inf, length(para))
     try 
-        stderrors = StatsBase.stderror(mle)
+        # stderrors = StatsBase.stderror(mle)
+        stderrors = sqrt.(diag(pinv(hess)))
         zscore = para ./ stderrors
         p = map(z -> StatsAPI.pvalue(Distributions.Normal(), z; tail=:both), zscore)
     
