@@ -65,7 +65,7 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
         f = perturb_fit!(f, ho_mod, mu, fop)
         if (evd(f) == Inf) || any(f.opt.at_lboundary) || any(f.opt.at_uboundary[2:end]) || isnothing(f.opt.coeftable)
             @info "fit failed, fallback on sequential fit"
-            f_ = pre_fit(ho_mod, nepochs, mu, Ltot; smallest_segment)
+            f_ = pre_fit(ho_mod, nepochs, mu, Ltot; Tlow, Nlow, Nupp, smallest_segment)
             if !isassigned(f_, nepochs)
                 @warn "fit failed, exiting at iter $iter,
                     consider reducing the number of epochs, currently set at $nepochs"
@@ -88,7 +88,7 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
     lp = 0
     sample_size = 0
     for j in burnin:iters
-        if (!any(chain[j].opt.at_lboundary) &&
+        if (!any(chain[j].opt.at_lboundary[1:end-2]) &&
             !any(chain[j].opt.at_uboundary[3:2:end-1]) &&
             chain[j].converged &&
             !isinf(evd(chain[j])) &&
@@ -194,29 +194,15 @@ Compare the models parameterized by `FitResult`s and return the best one.
 ### Theoretical explanation
 TBD
 """
-function compare_models(models::Vector{FitResult}; threshold::Float64 = 0.05)
+function compare_models(models::Vector{FitResult})
     ms = copy(models)
     ms = filter(m->!isinf(evd(m)), ms)
     ms = filter(m->all(m.opt.pvalues .< 0.05), ms)
-    while length(ms) > 1
+    if length(ms) > 0
         evidences = evd.(ms)
         best = argmax(evidences)
-        ns = pop_sizes(ms[best])
-        std = sds(ms[best])[2:2:end]
-        zscore = fill(0.0, length(ns)-1)
-        for i in eachindex(zscore)
-            zscore[i] = (ns[i] - ns[i+1]) / sqrt(std[i]^2 + std[i+1]^2)
-        end
-        p = map(z -> StatsAPI.pvalue(Distributions.Normal(), z; tail=:both), zscore)
-        if all(p .< threshold)
-            return ms[best]
-        else
-            deleteat!(ms, best)
-        end
+        return ms[best]
     end
-    if isempty(ms)
-        @warn "none of the models is meaningful"
-        return nothing
-    end
-    return ms[1]
+    @warn "none of the models is meaningful"
+    return nothing
 end

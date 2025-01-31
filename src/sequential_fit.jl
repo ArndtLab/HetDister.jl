@@ -7,10 +7,9 @@ function initializer(h::Histogram, mu::Float64, prev_para::Vector{T};
 ) where {T <: Number}
 
     # find approximate time of positive (negative) deviation from previous fit
-    w_th = integral_ws(h.edges[1].edges, mu, prev_para)
     r = midpoints(h.edges[1])
-    residuals = pos ? (h.weights - w_th) ./ sqrt.(h.weights) : (w_th - h.weights) ./ sqrt.(h.weights)
-    residuals[h.weights .== 0] .= 0
+    residuals = compute_residuals(h, mu, prev_para)
+    if !pos residuals = -residuals end
 
     divide = zeros(Int, length(residuals))
     divide[(residuals .> threshold) .& (r .>= smallest_segment)] .= 1
@@ -117,15 +116,14 @@ See also [`FitResult`](@ref).
 same as in [`fit`](@ref).
 """
 function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
-    Tlow::Int = 10,
-    Nlow::Int = 10, Nupp::Int = 100000,
+    Tlow::Int=10, Nlow::Int=10, Nupp::Int=100000,
     smallest_segment::Int = 30
 )
     frame = 20
     fits = Vector{FitResult}(undef, nfits)
     tprevious = [0.]
     for i in 1:nfits
-        fop = FitOptions(Ltot; nepochs = i)
+        fop = FitOptions(Ltot; nepochs = i, Tlow, Nlow, Nupp)
         if i == 1
             f = fit_model_epochs(h, mu, fop)
             push!(tprevious, 20 * f.para[2])
@@ -172,9 +170,10 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
 
             init = copy(fits[i-1].para)
             N0 = fits[1].para[2]
-            t = min(t, 12N0) # permissive upper bound to 12 times the ancestral population size. It can anyway vary during the optimization
-            ts = reverse(pushfirst!(cumsum(init[end:-2:3]),0))
+            t = min(t, 12N0) # permissive upper bound to 12 times the ancestral population size
+            ts = reverse(pushfirst!(cumsum(init[end-1:-2:3]),0))
             split_epoch = findfirst(ts .< t)
+            @debug "split epoch " split_epoch
 
             if split_epoch == 1
                 newT = t - ts[1]
@@ -183,19 +182,14 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
                 insert!(init, 3, newN)
                 insert!(init, 3, newT)
             else
-                if iszero(t)
-                    newT1 = (ts[end-1] - ts[end]) / 2
-                    newT1 = max(newT1, 20)
-                    newT2 = newT1
-                    @assert(split_epoch == length(ts), "split_epoch: $split_epoch, length(ts): $(length(ts))")
-                else
-                    newT1 = ts[split_epoch-1] - t
-                    newT1 = max(newT1, 20)
-                    newT2 = t - ts[split_epoch]
-                    newT2 = max(newT2, 20)
-                end
+                newT1 = ts[split_epoch-1] - t
+                newT1 = max(newT1, 20)
+                newT2 = t - ts[split_epoch]
+                newT2 = max(newT2, 20)
                 newN = init[2split_epoch]
-                # newN > (Nupp / 1.01) && (newN = fits[1].para[2])
+                if newN > (fop.upp[2split_epoch] / 1.01)
+                    newN = N0
+                end
                 init[2split_epoch-1] = newT1
                 insert!(init, 2split_epoch, newT2)
                 insert!(init, 2split_epoch, newN)

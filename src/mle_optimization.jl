@@ -181,7 +181,7 @@ function fit_model_epochs(hist::StatsBase.Histogram, mu::Float64, options::FitOp
     lp = -minimum(mle.optim_result)
     
     hess = DemoInfer.getHessian(mle)
-    dethess = det(hess)
+    eigen_problem = eigen(hess)
     
     at_uboundary = map((x,u) -> (x>u/1.05), para, options.upp)
     at_lboundary = map((l,x) -> (x<l*1.05), options.low, para)
@@ -192,7 +192,8 @@ function fit_model_epochs(hist::StatsBase.Histogram, mu::Float64, options::FitOp
     ci_low = fill(-Inf, length(para))
     ci_high = fill(Inf, length(para))
     try 
-        stderrors = StatsBase.stderror(mle)
+        # stderrors = StatsBase.stderror(mle)
+        stderrors = sqrt.(diag(pinv(hess)))
         zscore = para ./ stderrors
         p = map(z -> StatsAPI.pvalue(Distributions.Normal(), z; tail=:both), zscore)
     
@@ -212,7 +213,10 @@ function fit_model_epochs(hist::StatsBase.Histogram, mu::Float64, options::FitOp
     end
     
     # assuming uniform prior
-    evidence = lp + sum(log.(1.0 ./ (options.upp.-options.low)) .+ 0.5*log(2*pi)) - 0.5 * log(max(dethess, 0))
+    lambdas = eigen_problem.values
+    lambdas[lambdas .< 0] .= eps()
+    evidence = lp + sum(log.(1.0 ./ (options.upp.-options.low)) .+ 0.5*log(2*pi)) - 
+        0.5 * sum(log.(lambdas))
 
     FitResult(
         options.nepochs,
@@ -234,7 +238,7 @@ function fit_model_epochs(hist::StatsBase.Histogram, mu::Float64, options::FitOp
             maxchange,
             coeftable = ct, 
             zscore, pvalues = p, ci_low, ci_high,
-            dethess)
+            eigen_problem.values)
     )
 end
 
