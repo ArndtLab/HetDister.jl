@@ -41,20 +41,22 @@ end
 
 function compute_residuals(h::Histogram, mu::Float64, TN::Vector)
     w_th = integral_ws(h.edges[1].edges, mu, TN)
-    w_ = zeros(length(h.weights))
-    w_ .= h.weights
+    # w_ = zeros(length(h.weights))
+    # w_ .= h.weights
     # when the observation is zero, we infer the rate of the Poisson process from the
     # neighbouring bins epxloiting the relation between them given by the model
-    w_[h.weights .== 0] .= w_th[h.weights .== 0]
-    residuals = (h.weights - w_th) ./ sqrt.(w_)
+    # w_[h.weights .== 0] .= w_th[h.weights .== 0]
+    # residuals = (h.weights - w_th) ./ sqrt.(w_)
+    residuals = (h.weights - w_th) ./ sqrt.(w_th) # probably better to use the "population" variance
     @assert all(isfinite.(residuals))
     return residuals
 end
 
-function compute_residuals(h1::Histogram, h2::Histogram)
+function compute_residuals(h1::Histogram, h2::Histogram; fc1 = 1.0, fc2 = 1.0)
+    @assert length(h1.weights) == length(h2.weights)
     # when both observations are zero the residual is zero
-    w_ = h1.weights .+ h2.weights
-    residuals = (h1.weights - h2.weights) ./ sqrt.(w_)
+    w_ = h1.weights / fc1 .+ h2.weights / fc2
+    residuals = (h1.weights / fc1 - h2.weights / fc2) ./ sqrt.(w_)
     residuals[w_ .== 0] .= 0
     @assert all(isfinite.(residuals))
     return residuals

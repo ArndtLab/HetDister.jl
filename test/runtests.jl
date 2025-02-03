@@ -23,7 +23,7 @@ itr = Base.Iterators.product(mus,rhos,TNs)
 
     nmax = 3
 
-    res = map(n->DemoInfer.fit(h, n, mu, rho, TN[1], iters = 2, factor=100), 1:nmax)
+    res = map(n->DemoInfer.fit(h, n, mu, rho, TN[1], iters = 3, burnin = 1, factor=100), 1:nmax)
     
     best_model = compare_models(res)
 
