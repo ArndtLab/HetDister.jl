@@ -24,7 +24,8 @@ export get_sim!,
     pre_fit, fit, compare_models, estimate_nepochs,
     get_para, evd, sds, pop_sizes, durations, get_chain,
     compute_residuals,
-    FitResult
+    FitResult,
+    Flat, Lin, Sq
 
 
 function integral_ws(edges::Vector{T}, mu::Float64, TN::Vector) where {T <: Number}
