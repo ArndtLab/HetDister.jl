@@ -117,7 +117,8 @@ same as in [`fit`](@ref).
 """
 function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
     Tlow::Int=10, Nlow::Int=10, Nupp::Int=100000,
-    smallest_segment::Int = 30
+    smallest_segment::Int = 30,
+    require_convergence::Bool = true
 )
     frame = 20
     fits = Vector{FitResult}(undef, nfits)
@@ -199,7 +200,7 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
             f = fit_model_epochs(h, mu, fop)
             # init = recombine(f, init)
             f = perturb_fit!(f, h, mu, fop)
-            if !f.converged
+            if require_convergence && !f.converged
                 @info "pre_fit: not converged, epoch $i"
                 return fits
             end
@@ -227,7 +228,7 @@ The optional argument `max_nepochs` defines the maximum number of epochs that ar
 while the other keyword arguments are passed to [`pre_fit`](@ref).
 """
 function estimate_nepochs(h::Histogram, mu::Float64, Ltot::Number; max_nepochs::Int = 10, kwargs...)
-    fits = pre_fit(h, max_nepochs, mu, Ltot; kwargs...)
+    fits = pre_fit(h, max_nepochs, mu, Ltot; require_convergence = false, kwargs...)
     nepochs = findlast(i->isassigned(fits, i), eachindex(fits))
     fits = fits[1:nepochs]
     fits = filter(m-> !isinf(evd(m)) && m.converged, fits)
