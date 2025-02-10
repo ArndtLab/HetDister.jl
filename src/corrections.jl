@@ -83,7 +83,7 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
         updateTupp!(fop, 10init[2])
         f = fit_model_epochs(ho_mod, mu, fop)
         f = perturb_fit!(f, ho_mod, mu, fop)
-        if (evd(f) == Inf) || any(f.opt.at_lboundary[1:end-2]) || any(f.opt.at_uboundary[2:end]) || isnothing(f.opt.coeftable)
+        if (evd(f) == Inf) || any(f.opt.at_lboundary[1:end-2]) || any(f.opt.at_uboundary[2:end])
             @info "fit failed, fallback on sequential fit"
             f_ = pre_fit(ho_mod, nepochs, mu, Ltot; Tlow, Nlow, Nupp, smallest_segment)
             if !isassigned(f_, nepochs)
