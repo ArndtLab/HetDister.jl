@@ -91,7 +91,7 @@ See also [`FitResult`](@ref).
 - `Tlow::Int=10`: The lower bound for the duration of epochs.
 - `Nlow::Int=10`, `Nupp::Int=100000`: The lower and upper bounds for the population sizes.
 - `smallest_segment::Int=30`: The smallest segment size to consider for the optimization,
-same as in [`fit`](@ref).
+same as in [`demoinfer`](@ref).
 """
 function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
     Tlow::Int=10, Nlow::Int=10, Nupp::Int=100000,

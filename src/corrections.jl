@@ -21,8 +21,8 @@ function (a::Sq)(L, it)
 end
 
 """
-    fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number; kwargs...)
-    fit(h_obs, nepochs, mu, rho, Ltot, init::Vector{Float64}; kwargs...)
+    demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number; kwargs...)
+    demoinfer(h_obs, nepochs, mu, rho, Ltot, init::Vector{Float64}; kwargs...)
 
 Fit iteratively `h_obs` with a demographic history of piece-wise constant `nepochs`.
 
@@ -195,7 +195,7 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
         return nullFit(nepochs, mu, [], [])
     end
     f = f[nepochs]
-    return fit(h_obs, nepochs, mu, rho, Ltot, get_para(f); 
+    return demoinfer(h_obs, nepochs, mu, rho, Ltot, get_para(f); 
         iters,
         burnin,
         allow_boundary,
