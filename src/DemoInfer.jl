@@ -21,7 +21,7 @@ include("simulate.jl")
 include("corrections.jl")
 
 export get_sim!,
-    pre_fit, fit, compare_models, estimate_nepochs,
+    pre_fit, demoinfer, compare_models, estimate_nepochs,
     get_para, evd, sds, pop_sizes, durations, get_chain,
     compute_residuals,
     FitResult,

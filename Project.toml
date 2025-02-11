@@ -1,7 +1,7 @@
 name = "DemoInfer"
 uuid = "50651ce3-0423-45d2-b99c-8ea4267d2717"
 authors = ["Tommaso Stentella <stentell@molgen.mpg.de> and contributors"]
-version = "0.3.5"
+version = "0.4.0"
 
 [deps]
 Accessors = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"

@@ -51,7 +51,7 @@ function perturb_fit!(f::FitResult, h::Histogram, mu::Float64, fop::FitOptions;
                 setinit!(fop, f.para)
                 fop.perturbations = perturbations
                 f = fit_model_epochs(h, mu, fop)
-                if (evd(f) != Inf) && !(any(fit.opt.at_lboundary[1:end-2]) && by_pass)
+                if (evd(f) != Inf) && !(any(f.opt.at_lboundary[1:end-2]) && by_pass)
                     break
                 end
             end

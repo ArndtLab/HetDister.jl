@@ -43,9 +43,11 @@ separation between two subpopulations show up as a higher population size (small
 - `Nlow::Int=10`, `Nupp::Int=100000`: The lower and upper bounds for the population sizes.
 - `smallest_segment::Int=30`: The smallest segment size to consider for the optimization.
 - `annealing = Sq()`: correction is computed by simulating a genome of length `factor` times the length of
-the input genome. At each iteration the factor is changed according to the annealing function
+the input genome. At each iteration the factor is changed according to the annealing function. It can be `Flat()`,
+`Lin()` or `Sq()`. It can be a user defined function with signature `(L, it) -> factor` with `L` the genome length
+and `it` the iteration index.
 """
-function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64}; 
+function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64}; 
     iters::Int = 5,
     burnin::Int = 3,
     allow_boundary::Bool = false,
@@ -177,7 +179,7 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
     return final_fit
 end
 
-function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number;
+function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number;
     iters::Int = 5,
     burnin::Int = 3,
     allow_boundary::Bool = false,
