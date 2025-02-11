@@ -195,7 +195,7 @@ function fit_model_epochs(hist::StatsBase.Histogram, mu::Float64, options::FitOp
         # stderrors = StatsBase.stderror(mle)
         stderrors = sqrt.(diag(pinv(hess)))
         zscore = para ./ stderrors
-        p = map(z -> StatsAPI.pvalue(Distributions.Normal(), z; tail=:both), zscore)
+        p = map(z -> StatsAPI.pvalue(Distributions.Normal(), z; tail=:right), zscore)
     
         # Confidence interval (CI)
         q = Statistics.quantile(Distributions.Normal(), (1 + options.level) / 2)

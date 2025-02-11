@@ -29,5 +29,5 @@ mu = 2.36e-8
 rho = 1e-8
 Ltot = sum(data[:,1])
 nepochs = 3
-res, chains = fit(h_obs, nepochs, mu, rho, Ltot)
+res, chains = demoinfer(h_obs, nepochs, mu, rho, Ltot)
 ```

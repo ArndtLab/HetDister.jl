@@ -1,6 +1,28 @@
+struct Flat end
+
+function (a::Flat)(L, it)
+    return 1
+end
+
+struct Lin end
+
+function (a::Lin)(L, it)
+    maxL = 3e11
+    f = min(1 + 10*(it-1), 1000)
+    return min(f, maxL/L)
+end
+
+struct Sq end
+
+function (a::Sq)(L, it)
+    maxL = 3e11
+    f = min(1 + (3*(it-1))^2, 1000)
+    return min(f, maxL/L)
+end
+
 """
-    fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number; kwargs...)
-    fit(h_obs, nepochs, mu, rho, Ltot, init::Vector{Float64}; kwargs...)
+    demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number; kwargs...)
+    demoinfer(h_obs, nepochs, mu, rho, Ltot, init::Vector{Float64}; kwargs...)
 
 Fit iteratively `h_obs` with a demographic history of piece-wise constant `nepochs`.
 
@@ -10,9 +32,9 @@ and `Ltot` is the total length of the genome, in base pairs.
 Optional argument `init` can be used to provide an initial point for the iterations.
 
 # Arguments
-- `iters::Int=100`: The number of iterations to perform. Suggested value is at least 10.
-- `burnin::Int=5`: The number of iterations to discard as burnin. Notice that in general
-    already the first iteration is a good sample.
+- `iters::Int = 5`: The number of iterations to perform. Suggested value is at least 5, annealing plays a role.
+- `burnin::Int = 3`: The number of iterations to discard as burnin. Notice that in general with no annealing,
+    i.e. `Flat()`, already the first iteration is a good sample.
 - `allow_boundary::Bool=false`: If true, the function will allow the fit to reach the upper 
 boundaries of populations sizes. This can be useful if structure is expected because epochs of
 separation between two subpopulations show up as a higher population size (smaller coalescence rate).
@@ -20,21 +42,20 @@ separation between two subpopulations show up as a higher population size (small
 - `Tlow::Int=10`: The lower bound for the duration of epochs.
 - `Nlow::Int=10`, `Nupp::Int=100000`: The lower and upper bounds for the population sizes.
 - `smallest_segment::Int=30`: The smallest segment size to consider for the optimization.
-- `factor::Int=1`: correction is computed by simulating a genome of length `factor` times the length of
-the input genome.
-This dictates the lower bound which is considered in when initially guessing when to insert 
-a new epoch, i.e. the upper bound for time splits. Notice that the optimization per se is
-not affected by this limit.
+- `annealing = Sq()`: correction is computed by simulating a genome of length `factor` times the length of
+the input genome. At each iteration the factor is changed according to the annealing function. It can be `Flat()`,
+`Lin()` or `Sq()`. It can be a user defined function with signature `(L, it) -> factor` with `L` the genome length
+and `it` the iteration index.
 """
-function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64}; 
-    iters::Int = 100,
-    burnin::Int = 0,
+function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64}; 
+    iters::Int = 5,
+    burnin::Int = 3,
     allow_boundary::Bool = false,
     level::Float64 = 0.95,
     Tlow::Int = 10,
     Nlow::Int = 10, Nupp::Int = 100000,
     smallest_segment::Int = 30,
-    factor::Int = 1
+    annealing = Sq()
 )
 
     burnin >= iters && @error "burnin must be smaller than iters"
@@ -51,7 +72,8 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
 
     for iter in 1:iters
         weights_th = integral_ws(h_obs.edges[1].edges, mu, init)
-        get_sim!(init, h_sim, mu, rho, factor=factor)
+        factor = annealing(Ltot, iter)
+        get_sim!(init, h_sim, mu, rho; factor)
     
         ho_mod.weights .= h_obs.weights
     
@@ -63,13 +85,11 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
         updateTupp!(fop, 10init[2])
         f = fit_model_epochs(ho_mod, mu, fop)
         f = perturb_fit!(f, ho_mod, mu, fop)
-        if (evd(f) == Inf) || any(f.opt.at_lboundary) || any(f.opt.at_uboundary[2:end]) || isnothing(f.opt.coeftable)
+        if (evd(f) == Inf) || any(f.opt.at_lboundary[1:end-2]) || any(f.opt.at_uboundary[2:end])
             @info "fit failed, fallback on sequential fit"
             f_ = pre_fit(ho_mod, nepochs, mu, Ltot; Tlow, Nlow, Nupp, smallest_segment)
             if !isassigned(f_, nepochs)
-                @warn "fit failed, exiting at iter $iter,
-                    consider reducing the number of epochs, currently set at $nepochs"
-                # return nullFit(nepochs, mu, init)
+                @warn "fit failed, consider reducing the number of epochs, currently set at $nepochs"
             else
                 f = f_[nepochs]
                 f = perturb_fit!(f, ho_mod, mu, fop)
@@ -124,7 +144,7 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
     ci_high = fill(Inf, length(estimate))
     try 
         zscore = estimate ./ estimate_sd
-        p = map(z -> StatsAPI.pvalue(Distributions.Normal(), z; tail=:both), zscore)
+        p = map(z -> StatsAPI.pvalue(Distributions.Normal(), z; tail=:right), zscore)
     
         # Confidence interval (CI)
         q = Statistics.quantile(Distributions.Normal(), (1 + level) / 2)
@@ -152,21 +172,22 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
             chain, corrections, sample_size,
             zscore,
             pvalues = p, ci_low, ci_high,
+            h_obs
         )
     )
 
     return final_fit
 end
 
-function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number;
-    iters::Int = 100,
-    burnin::Int = 0,
+function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number;
+    iters::Int = 5,
+    burnin::Int = 3,
     allow_boundary::Bool = false,
     level::Float64 = 0.95,
     Tlow::Int = 10,
     Nlow::Int = 10, Nupp::Int = 100000,
     smallest_segment::Int = 30,
-    factor::Int = 1
+    annealing = Sq()
 )
     f = pre_fit(h_obs, nepochs, mu, Ltot; Tlow, Nlow, Nupp, smallest_segment)
     if !isassigned(f, nepochs)
@@ -174,7 +195,7 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
         return nullFit(nepochs, mu, [], [])
     end
     f = f[nepochs]
-    return fit(h_obs, nepochs, mu, rho, Ltot, get_para(f); 
+    return demoinfer(h_obs, nepochs, mu, rho, Ltot, get_para(f); 
         iters,
         burnin,
         allow_boundary,
@@ -182,7 +203,7 @@ function fit(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Nu
         Tlow,
         Nlow, Nupp,
         smallest_segment,
-        factor
+        annealing
     )
 end
 
