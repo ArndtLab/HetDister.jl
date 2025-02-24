@@ -214,9 +214,13 @@ function fit_model_epochs(hist::StatsBase.Histogram, mu::Float64, options::FitOp
     
     # assuming uniform prior
     lambdas = eigen_problem.values
-    lambdas[lambdas .< 0] .= eps()
-    evidence = lp + sum(log.(1.0 ./ (options.upp.-options.low)) .+ 0.5*log(2*pi)) - 
-        0.5 * sum(log.(lambdas))
+    evidence = -Inf
+    if isreal(lambdas)
+        lambdas = real.(lambdas)
+        lambdas[lambdas .< 0] .= eps()
+        evidence = lp + sum(log.(1.0 ./ (options.upp.-options.low)) .+ 0.5*log(2*pi)) - 
+            0.5 * sum(log.(lambdas))
+    end
 
     FitResult(
         options.nepochs,
