@@ -106,6 +106,7 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
     estimate_sd = zeros(length(chain[1].para))
     evidence = 0
     lp = 0
+    correction = zeros(length(h_obs.weights))
     sample_size = 0
     for j in burnin:iters
         if (!any(chain[j].opt.at_lboundary[1:end-2]) &&
@@ -119,24 +120,36 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
                 estimate_sd .+= sds(chain[j]) .^2
                 evidence += evd(chain[j])
                 lp += chain[j].lp
+                correction .+= corrections[j]
                 sample_size += 1
             elseif !any(chain[j].opt.at_uboundary[2:2:end])
                 estimate .+= chain[j].para
                 estimate_sd .+= sds(chain[j]) .^2
                 evidence += evd(chain[j])
                 lp += chain[j].lp
+                correction .+= corrections[j]
                 sample_size += 1
             end
         end
     end
     if sample_size == 0
         @debug "all fits discarded"
-        return nullFit(nepochs, mu, init, [chain,corrections])
+        # return nullFit(nepochs, mu, init, [chain,corrections])
+        for j in burnin:iters
+            estimate .+= chain[j].para
+            estimate_sd .+= sds(chain[j]) .^2
+            evidence += evd(chain[j])
+            lp += chain[j].lp
+            correction .+= corrections[j]
+            sample_size += 1
+        end
     end
     estimate ./= sample_size
     estimate_sd .= sqrt.(estimate_sd./sample_size)
     evidence /= sample_size
     lp /= sample_size
+    correction ./= sample_size
+    corrected_weights = integral_ws(h_obs.edges[1].edges, mu, estimate) .+ correction
     
     zscore = fill(0.0, length(estimate))
     p = fill(1, length(estimate))
@@ -172,7 +185,7 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
             chain, corrections, sample_size,
             zscore,
             pvalues = p, ci_low, ci_high,
-            h_obs
+            h_obs, corrected_weights
         )
     )
 
