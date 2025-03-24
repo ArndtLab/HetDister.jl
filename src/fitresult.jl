@@ -194,7 +194,7 @@ function updateTupp!(fop::FitOptions{EpochsFit}, Tupp)
 end
 
 function setinit!(fop::FitOptions{T}, h::Histogram, mu::Float64) where {T<:FitKind}
-    N = 1/(4*mu*(fop.Ltot/sum(h.weights)))
+    N = 1/(4*mu*(fop.Ltot/sum(h.weights))) # can be rough estimate depending on binning
     fop.init[1] = fop.Ltot
     n = npar(fop.nepochs, T())
     fop.init[2:end] .= N .* (0.99 .+ rand(n-1) .* 0.02)
