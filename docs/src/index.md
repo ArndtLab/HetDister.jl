@@ -16,7 +16,7 @@ The genome needs to be SNP-called and the genomic distance between consecutive h
 The demographic model underlying the inference is composed of a variable number of epochs and the population size is constant along each epoch.
 
 The output is a vector of parameters in the form `[L, N0, T1, N1, T2, N2, ...]` where `L` is the genome length,
-`N0` is the ancestral population size in the infinite past and the subsequent pairs $(T_i, N_i)$ are the duration and size of following epochs going from past to present. This format is referred to as `TN` vector throughout.
+`N0` is the ancestral population size in the furthermost epoch and extending to the infinite past, the subsequent pairs $(T_i, N_i)$ are the duration and size of following epochs going from past to present. This format is referred to as `TN` vector throughout.
 
 ```@index
 ```

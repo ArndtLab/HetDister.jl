@@ -21,7 +21,7 @@ data = CSV.read("path", header=0, DataFrame; delim="\t")
 h_obs = HistogramBinnings.Histogram(LogEdgeVector(lo = 30, hi = 1_000_000, nbins = 200));
 append!(h_obs, data[:,1])
 ```
-You can read a vector from a `.csv` file (first line) and the create an histogram with it.
+You can read a vector from a `.csv` file (first line) and then create an histogram with it.
 
 Set a value for the rates and run the inference:
 ```julia
