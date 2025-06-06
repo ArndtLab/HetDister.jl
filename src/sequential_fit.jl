@@ -1,3 +1,14 @@
+function tcondr(r::Number, para::Vector{T}, mu::Number) where T<:Number
+    return 1 / (mu * (25r)^(1/1.3))
+    # coalt = 1:40*para[2]
+    # ts = MLDs.ordts(para)
+    # ns = MLDs.ordns(para)
+    # post = map(coalt) do t
+    #     MLDs.approxposteriort(t, r, para[1], mu, ts, ns)
+    # end
+    # return coalt[argmax(post)]
+end
+
 function initializer(h::Histogram, mu::Float64, prev_para::Vector{T};
     frame::Number = 20, 
     pos::Bool = true,
@@ -27,7 +38,7 @@ function initializer(h::Histogram, mu::Float64, prev_para::Vector{T};
 
     for j in eachindex(divide[1:end-1])
         if divide[j] == 0 && divide[j+1] == 1
-            t = 1 / (mu * (25r[j])^(1/1.3))
+            t = tcondr(r[j], prev_para, mu)
             @debug "identified deviation " r[j]
             return t
         end
@@ -68,6 +79,8 @@ function timesplitter(h::Histogram, mu::Float64, prev_para::Vector{T}, tprevious
     @debug "initializer results " t1 t2 t
     return t
 end
+
+# TODO: recycle spline for splitting
 
 # function timesplitter(h::Histogram, mu::Float64, prev_para::Vector{T}; 
 #     n_nodes::Int = 35
