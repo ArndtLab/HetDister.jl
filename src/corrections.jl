@@ -48,7 +48,7 @@ the input genome. At each iteration the factor is changed according to the annea
 and `it` the iteration index.
 """
 function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64}; 
-    iters::Int = 5,
+    iters::Int = 6,
     burnin::Int = 3,
     allow_boundary::Bool = false,
     level::Float64 = 0.95,
@@ -107,48 +107,52 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
     evidence = 0
     lp = 0
     correction = zeros(length(h_obs.weights))
-    sample_size = 0
-    for j in burnin:iters
-        if (!any(chain[j].opt.at_lboundary[1:end-2]) &&
-            !any(chain[j].opt.at_uboundary[3:2:end-1]) &&
-            chain[j].converged &&
-            !isinf(evd(chain[j])) &&
-            all(chain[j].opt.pvalues .< 0.05)
-        )
-            if allow_boundary
-                estimate .+= chain[j].para
-                estimate_sd .+= sds(chain[j]) .^2
-                evidence += evd(chain[j])
-                lp += chain[j].lp
-                correction .+= corrections[j]
-                sample_size += 1
-            elseif !any(chain[j].opt.at_uboundary[2:2:end])
-                estimate .+= chain[j].para
-                estimate_sd .+= sds(chain[j]) .^2
-                evidence += evd(chain[j])
-                lp += chain[j].lp
-                correction .+= corrections[j]
-                sample_size += 1
-            end
-        end
-    end
-    if sample_size == 0
-        @debug "all fits discarded"
-        # return nullFit(nepochs, mu, init, [chain,corrections])
-        for j in burnin:iters
-            estimate .+= chain[j].para
-            estimate_sd .+= sds(chain[j]) .^2
-            evidence += evd(chain[j])
-            lp += chain[j].lp
-            correction .+= corrections[j]
-            sample_size += 1
-        end
-    end
-    estimate ./= sample_size
-    estimate_sd .= sqrt.(estimate_sd./sample_size)
-    evidence /= sample_size
-    lp /= sample_size
-    correction ./= sample_size
+    # sample_size = 0
+    # for j in burnin:iters
+    #     if (!any(chain[j].opt.at_lboundary[1:end-2]) &&
+    #         !any(chain[j].opt.at_uboundary[3:2:end-1]) &&
+    #         chain[j].converged &&
+    #         !isinf(evd(chain[j])) &&
+    #         all(chain[j].opt.pvalues .< 0.05)
+    #     )
+    #         if allow_boundary
+    #             estimate .+= chain[j].para
+    #             estimate_sd .+= sds(chain[j]) .^2
+    #             evidence += evd(chain[j])
+    #             lp += chain[j].lp
+    #             correction .+= corrections[j]
+    #             sample_size += 1
+    #         elseif !any(chain[j].opt.at_uboundary[2:2:end])
+    #             estimate .+= chain[j].para
+    #             estimate_sd .+= sds(chain[j]) .^2
+    #             evidence += evd(chain[j])
+    #             lp += chain[j].lp
+    #             correction .+= corrections[j]
+    #             sample_size += 1
+    #         end
+    #     end
+    # end
+    # if sample_size == 0
+    #     @debug "all fits discarded"
+    #     # return nullFit(nepochs, mu, init, [chain,corrections])
+    #     for j in burnin:iters
+    #         estimate .+= chain[j].para
+    #         estimate_sd .+= sds(chain[j]) .^2
+    #         evidence += evd(chain[j])
+    #         lp += chain[j].lp
+    #         correction .+= corrections[j]
+    #         sample_size += 1
+    #     end
+    # end
+    # estimate ./= sample_size
+    # estimate_sd .= sqrt.(estimate_sd./sample_size)
+    # evidence /= sample_size
+    # lp /= sample_size
+    # correction ./= sample_size
+    estimate = chain[end].para
+    estimate_sd = sds(chain[end])
+    evidence = evd(chain[end])
+    lp = chain[end].lp
     corrected_weights = integral_ws(h_obs.edges[1].edges, mu, estimate) .+ correction
     
     zscore = fill(0.0, length(estimate))
@@ -182,7 +186,7 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
         evidence,
         (; 
             init,
-            chain, corrections, sample_size,
+            chain, corrections, #sample_size,
             zscore,
             pvalues = p, ci_low, ci_high,
             h_obs, corrected_weights
@@ -202,7 +206,7 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
     smallest_segment::Int = 30,
     annealing = Sq()
 )
-    f = pre_fit(h_obs, nepochs, mu, Ltot; Tlow, Nlow, Nupp, smallest_segment)
+    f = pre_fit(h_obs, nepochs, mu, Ltot; Tlow, Nlow, Nupp, smallest_segment, force = true)
     if !isassigned(f, nepochs)
         @warn "fit failed, reduce the number of epochs"
         return nullFit(nepochs, mu, [], [])
@@ -231,7 +235,7 @@ TBD
 function compare_models(models::Vector{FitResult})
     ms = copy(models)
     ms = filter(m->!isinf(evd(m)), ms)
-    ms = filter(m->all(m.opt.pvalues .< 0.05), ms)
+    # ms = filter(m->all(m.opt.pvalues .< 0.05), ms)
     if length(ms) > 0
         evidences = evd.(ms)
         best = argmax(evidences)
