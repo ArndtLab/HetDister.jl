@@ -9,6 +9,14 @@ function tcondr(r::Number, para::Vector{T}, mu::Number) where T<:Number
     # return coalt[argmax(post)]
 end
 
+# TODO: recycle spline for splitting
+
+#     xs = log.(midpoints(h.edges[1]))
+#     w0 = integral_ws(h.edges[1].edges, mu, prev_para)
+#     ys = (h.weights - w0) ./ sqrt.(w0)
+#     nodes = LinRange(xs[1],xs[end],n_nodes)
+#     fitsp = fit_nspline(xs,ys,nodes)
+
 function initializer(h::Histogram, mu::Float64, prev_para::Vector{T};
     frame::Number = 20, 
     pos::Bool = true,
@@ -80,71 +88,11 @@ function timesplitter(h::Histogram, mu::Float64, prev_para::Vector{T}, tprevious
     return t
 end
 
-# TODO: recycle spline for splitting
-
-# function timesplitter(h::Histogram, mu::Float64, prev_para::Vector{T}; 
-#     n_nodes::Int = 35
-# ) where {T <: Number}
-#     N0 = prev_para[2]
-#     xs = log.(midpoints(h.edges[1]))
-#     w0 = integral_ws(h.edges[1].edges, mu, prev_para)
-#     ys = (h.weights - w0) ./ sqrt.(w0)
-#     nodes = LinRange(xs[1],xs[end],n_nodes)
-#     fitsp = fit_nspline(xs,ys,nodes)
-#     drs = ForwardDiff.derivative.(x->ForwardDiff.derivative(fitsp,x), nodes)
-
-#     # spline 2nd derivative is piecewise linear, find zeros
-#     inflections = Float64[]
-#     for i in 1:length(drs)-1
-#         if drs[i] * drs[i+1] < 0
-#             m = (drs[i+1] - drs[i]) / (nodes[i+1] - nodes[i])
-#             b = drs[i] - m * nodes[i]
-#             x = -b/m
-#             push!(inflections, x)
-#         end
-#     end
-#     shoulder = argmin(abs.(inflections .- log(1/4mu/N0)))
-
-#     # find maximum difference between spline and linear interpolation between inflections
-#     deviations = Float64[]
-#     for i in 1:length(inflections)
-#         xp = i == 1 ? xs[1] : inflections[i-1]
-#         xn = inflections[i]
-#         m = (fitsp(xn) - fitsp(xp)) / (xn - xp)
-#         b = fitsp(xp) - m * xp
-#         devs = fitsp.(xp:0.01:xn) - (m * (xp:0.01:xn) .+ b)
-#         argmaxdev = argmax(abs.(devs))
-#         push!(deviations, devs[argmaxdev])
-#     end
-#     xp = inflections[end]
-#     xn = xs[end]
-#     m = (fitsp(xn) - fitsp(xp)) / (xn - xp)
-#     b = fitsp(xp) - m * xp
-#     devs = fitsp.(xp:0.01:xn) - (m * (xp:0.01:xn) .+ b)
-#     argmaxdev = argmax(abs.(devs))
-#     push!(deviations, devs[argmaxdev])
-
-#     # rough prioritization of inflections, for splitting, may be unnecessary
-#     # scores = similar(inflections)
-#     # for i in 1:length(inflections)
-#     #     scores[i] = abs(deviations[i])+abs(deviations[i+1])
-#     #     if i == shoulder
-#     #         scores[i] = abs(deviations[i]+deviations[i+1])
-#     #     end
-#     # end
-#     # I = sortperm(scores, rev=true)
-#     # inflections = inflections[I]
-#     inflections .= exp.(inflections)
-#     ts = (exp.((inflections*4N0*mu).^0.35) .+ 1e5) ./ exp.((inflections*4N0*mu).^0.35)
-#     # ts = 1 ./ (mu * (25inflections).^(1/1.3))
-#     return ts
-# end
-
 function epochfinder!(init::Vector{T}, N0, t, fop::FitOptions) where {T <: Number}
     # t = min(t, 12N0) # permissive upper bound to 12 times the ancestral population size
     ts = reverse(pushfirst!(cumsum(init[end-1:-2:3]),0))
     split_epoch = findfirst(ts .< t)
-    # @debug "split epoch " split_epoch
+    isnothing(split_epoch) && (split_epoch = 1)
 
     if split_epoch == 1
         newT = t - ts[1]
@@ -230,7 +178,8 @@ same as in [`demoinfer`](@ref).
 function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
     Tlow::Int=10, Nlow::Int=10, Nupp::Int=100000,
     smallest_segment::Int = 30,
-    require_convergence::Bool = true
+    require_convergence::Bool = true,
+    force::Bool = false
 )
     fits = Vector{FitResult}(undef, nfits)
     tprevious = [0.]
@@ -243,7 +192,9 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
             t = timesplitter(h, mu, fits[i-1].para, tprevious; smallest_segment=smallest_segment)
             if iszero(t)
                 @info "pre_fit: no split found, epoch $i"
-                return fits
+                if !force
+                    return fits
+                end
             end
             push!(tprevious, t)
             init = copy(fits[i-1].para)
@@ -259,8 +210,7 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
         end
 
         if any(isnan.(f.para))
-            @info "pre_fit: nan para, epoch $i" f.para
-            return fits
+            @error "NaN parameters" f.para
         end
 
         fits[i] = f
