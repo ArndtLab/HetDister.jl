@@ -26,12 +26,18 @@ function initializer(h::Histogram, mu::Float64, prev_para::Vector{T};
 
     # find approximate time of positive (negative) deviation from previous fit
     r = midpoints(h.edges[1])
+    r .= log.(r)
     residuals = compute_residuals(h, mu, prev_para)
+    n_nodes = 30
+    nodes = LinRange(r[1],r[end],n_nodes)
     if !pos residuals = -residuals end
+    fitsp = fit_nspline(r,residuals,nodes)
 
     divide = zeros(Int, length(residuals))
-    divide[(residuals .> threshold) .& (r .>= smallest_segment)] .= 1
-    divide[residuals .< threshold] .= 0
+    # divide[(residuals .> threshold) .& (r .>= smallest_segment)] .= 1
+    # divide[residuals .< threshold] .= 0
+    divide[(fitsp.(r) .> threshold) .& (r .>= log(smallest_segment))] .= 1
+    divide[fitsp.(r) .< threshold] .= 0
     j = 1
     while j < length(divide)
         z = 1

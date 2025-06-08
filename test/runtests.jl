@@ -99,6 +99,7 @@ end
     Ltot = sum(ibs_segments)
     fits = map(n->demoinfer(h, n, mu, rho, Ltot), 1:7)
     best = compare_models(fits)
+    @test length(get_para(best)) <= length(TN)
     @test all(abs.(TN .- get_para(best)) ./ sds(best) .< 3)
 end
 
