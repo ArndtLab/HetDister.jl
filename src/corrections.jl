@@ -235,7 +235,7 @@ TBD
 function compare_models(models::Vector{FitResult})
     ms = copy(models)
     ms = filter(m->!isinf(evd(m)), ms)
-    # ms = filter(m->all(m.opt.pvalues .< 0.05), ms)
+    ms = filter(m->any(m.opt.pvalues .< 0.05), ms)
     if length(ms) > 0
         evidences = evd.(ms)
         best = argmax(evidences)
