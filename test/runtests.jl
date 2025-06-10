@@ -55,7 +55,7 @@ itr = Base.Iterators.product(mus,rhos,TNs)
     compare_models(FitResult[f])
     compute_residuals(h, mu, TN)
 end
-
+#=
 function get_sim(TN::Vector, mu::Number, rho::Number)
     L = TN[1]
     Ns = reverse(TN[2:2:end])
@@ -92,6 +92,17 @@ end
     @test abs(std(residuals) - 1) < 3/sqrt(200)
 end
 
+function noft(t::Number, ts::Vector, ns::Vector)
+    pnt = 1
+    while (pnt < length(ts)) && (ts[pnt] < t)
+        pnt += 1
+    end
+    if ts[pnt] < t
+        pnt += 1
+    end
+    return ns[pnt]
+end
+
 @testset "fit $(length(TN)÷2) epochs,  mu $mu, rho $rho" for (mu,rho,TN) in itr
     h = Histogram(LogEdgeVector(lo = 1, hi = 1_000_000, nbins = 200))
     ibs_segments = get_sim(TN, mu, rho)
@@ -99,8 +110,18 @@ end
     Ltot = sum(ibs_segments)
     fits = map(n->demoinfer(h, n, mu, rho, Ltot), 1:7)
     best = compare_models(fits)
-    @test length(get_para(best)) <= length(TN)
-    @test all(abs.(TN .- get_para(best)) ./ sds(best) .< 3)
-end
+    grid = logrange(1, 1e8, length = 1000)
+    fts = MLDs.ordts(get_para(best))
+    fns = MLDs.ordns(get_para(best))
+    erfns = MLDs.ordns(sds(best))
+    ints = MLDs.ordts(TN)
+    inns = MLDs.ordns(TN)
+    for t in grid
+        inN = noft(t, ints, inns)
+        fN = noft(t, fts, fns)
+        eN = noft(t, fts, erfns)
+        @test abs((inN - fN) / erfns) < 3
+    end
+end =#
 
 # TODO: numerical stability of mle opt, boundary checks

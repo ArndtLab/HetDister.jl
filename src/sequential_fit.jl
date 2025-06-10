@@ -9,14 +9,6 @@ function tcondr(r::Number, para::Vector{T}, mu::Number) where T<:Number
     # return coalt[argmax(post)]
 end
 
-# TODO: recycle spline for splitting
-
-#     xs = log.(midpoints(h.edges[1]))
-#     w0 = integral_ws(h.edges[1].edges, mu, prev_para)
-#     ys = (h.weights - w0) ./ sqrt.(w0)
-#     nodes = LinRange(xs[1],xs[end],n_nodes)
-#     fitsp = fit_nspline(xs,ys,nodes)
-
 function initializer(h::Histogram, mu::Float64, prev_para::Vector{T};
     frame::Number = 20, 
     pos::Bool = true,
@@ -26,18 +18,12 @@ function initializer(h::Histogram, mu::Float64, prev_para::Vector{T};
 
     # find approximate time of positive (negative) deviation from previous fit
     r = midpoints(h.edges[1])
-    r .= log.(r)
     residuals = compute_residuals(h, mu, prev_para)
-    n_nodes = 30
-    nodes = LinRange(r[1],r[end],n_nodes)
     if !pos residuals = -residuals end
-    fitsp = fit_nspline(r,residuals,nodes)
 
     divide = zeros(Int, length(residuals))
-    # divide[(residuals .> threshold) .& (r .>= smallest_segment)] .= 1
-    # divide[residuals .< threshold] .= 0
-    divide[(fitsp.(r) .> threshold) .& (r .>= log(smallest_segment))] .= 1
-    divide[fitsp.(r) .< threshold] .= 0
+    divide[(residuals .> threshold) .& (r .>= smallest_segment)] .= 1
+    divide[residuals .< threshold] .= 0
     j = 1
     while j < length(divide)
         z = 1
@@ -60,37 +46,69 @@ function initializer(h::Histogram, mu::Float64, prev_para::Vector{T};
     return 0.
 end
 
+# function timesplitter(h::Histogram, mu::Float64, prev_para::Vector{T}, tprevious::Vector;
+#     frame::Number = 20,
+#     threshold::Float64 = 0.,
+#     smallest_segment::Int = 30
+# ) where {T <: Number}
+#     t1 = initializer(h, mu, prev_para; 
+#         frame, pos = true, threshold, smallest_segment
+#     )
+#     if iszero(t1)
+#     t1 = initializer(h, mu, prev_para;
+#         frame=frame/2, pos = true, threshold, smallest_segment
+#     )
+#     end
+#     t2 = initializer(h, mu, prev_para;
+#         frame, pos = false, threshold, smallest_segment
+#     )
+#     if iszero(t2)
+#     t2 = initializer(h, mu, prev_para;
+#         frame=frame/2, pos = false, threshold, smallest_segment
+#     )
+#     end
+#     t = min(t1, t2)
+#     if any(t .== tprevious)
+#     t = max(t1, t2)
+#     end
+#     if iszero(t1)
+#     t = t2
+#     elseif iszero(t2)
+#     t = t1
+#     end
+#     @debug "initializer results " t1 t2 t
+#     return t
+# end
+
 function timesplitter(h::Histogram, mu::Float64, prev_para::Vector{T}, tprevious::Vector;
-    frame::Number = 20,
+    frame::Number = 10,
     threshold::Float64 = 0.,
     smallest_segment::Int = 30
 ) where {T <: Number}
-    t1 = initializer(h, mu, prev_para; 
-        frame, pos = true, threshold, smallest_segment
-    )
-    if iszero(t1)
-    t1 = initializer(h, mu, prev_para;
-        frame=frame/2, pos = true, threshold, smallest_segment
-    )
+    r = log.(midpoints(h.edges[1]))
+    residuals = compute_residuals(h, mu, prev_para)
+    n_nodes = 30
+    nodes = LinRange(r[1],r[end],n_nodes)
+    fitsp = fit_nspline(r,residuals,nodes)
+    grid = LinRange(r[1],r[end],10_000)
+    smooth = fitsp.(grid)
+    t = 0.
+    i = 1
+    p = 0
+    while i < length(smooth)
+        if smooth[i] * smooth[i+1] < 0
+            if ((i-p) > frame) && (exp(grid[i]) >= smallest_segment)
+                x = exp(grid[i])
+                t = tcondr(x, prev_para, mu)
+                @debug "identified deviation at " x
+                if all(t .!= tprevious)
+                    return t
+                end
+            end
+            p = i
+        end
+        i += 1
     end
-    t2 = initializer(h, mu, prev_para;
-        frame, pos = false, threshold, smallest_segment
-    )
-    if iszero(t2)
-    t2 = initializer(h, mu, prev_para;
-        frame=frame/2, pos = false, threshold, smallest_segment
-    )
-    end
-    t = min(t1, t2)
-    if any(t .== tprevious)
-    t = max(t1, t2)
-    end
-    if iszero(t1)
-    t = t2
-    elseif iszero(t2)
-    t = t1
-    end
-    @debug "initializer results " t1 t2 t
     return t
 end
 
