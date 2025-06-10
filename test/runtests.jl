@@ -55,7 +55,7 @@ itr = Base.Iterators.product(mus,rhos,TNs)
     compare_models(FitResult[f])
     compute_residuals(h, mu, TN)
 end
-#=
+
 function get_sim(TN::Vector, mu::Number, rho::Number)
     L = TN[1]
     Ns = reverse(TN[2:2:end])
@@ -122,6 +122,6 @@ end
         eN = noft(t, fts, erfns)
         @test abs((inN - fN) / erfns) < 3
     end
-end =#
+end
 
 # TODO: numerical stability of mle opt, boundary checks
