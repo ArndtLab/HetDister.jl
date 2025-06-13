@@ -74,63 +74,64 @@ function get_sim(TN::Vector, mu::Number, rho::Number)
     ibs_segments
 end
 
-@testset "eaxhaustive pre-fit $(length(TN)÷2) epochs,  mu $mu, rho $rho" for (mu,rho,TN) in itr
-    h = Histogram(LogEdgeVector(lo = 1, hi = 1_000_000, nbins = 200))
-    ibs_segments = get_sim(TN, mu, rho)
-    append!(h, ibs_segments)
-    Ltot = sum(ibs_segments)
-    fits = pre_fit(h, 7, mu, Ltot, smallest_segment=30)
-    nepochs = findlast(i->isassigned(fits, i), eachindex(fits))
-    residuals = compute_residuals(h, mu, fits[nepochs].para)
-    if savewhenlocal
-        x = midpoints(h.edges[1])
-        scatter(x, residuals; s = 3)
-        xscale("log")
-        savefig("test.pdf")
-        close()
-    end
-    @test abs(mean(residuals)) < 3/sqrt(200)
-    @test abs(std(residuals) - 1) < 3/sqrt(200)
-end
-
 function noft(t::Number, ts::Vector, ns::Vector)
     pnt = 1
     while (pnt < length(ts)) && (ts[pnt] < t)
         pnt += 1
     end
-    if ts[pnt] < t
-        pnt += 1
-    end
     return ns[pnt]
 end
 
-@testset "fit $(length(TN)÷2) epochs,  mu $mu, rho $rho" for (mu,rho,TN) in itr
-    h = Histogram(LogEdgeVector(lo = 1, hi = 1_000_000, nbins = 200))
-    ibs_segments = get_sim(TN, mu, rho)
-    append!(h, ibs_segments)
-    Ltot = sum(ibs_segments)
-    fits = map(n->demoinfer(h, n, mu, rho, Ltot), 1:7)
-    best = compare_models(fits)
-    grid = logrange(1, 1e8, length = 1000)
-    fts = MLDs.ordts(get_para(best))
-    fns = MLDs.ordns(get_para(best))
-    erfns = MLDs.ordns(sds(best))
-    ints = MLDs.ordts(TN)
-    inns = MLDs.ordns(TN)
+@testset "fitting procedure" begin
+    @testset "eaxhaustive pre-fit $(length(TN)÷2) epochs,  mu $mu, rho $rho" for (mu,rho,TN) in itr
+        h = Histogram(LogEdgeVector(lo = 1, hi = 1_000_000, nbins = 200))
+        ibs_segments = get_sim(TN, mu, rho)
+        append!(h, ibs_segments)
+        Ltot = sum(ibs_segments)
+        fits = pre_fit(h, 7, mu, Ltot, smallest_segment=30)
+        nepochs = findlast(i->isassigned(fits, i), eachindex(fits))
+        residuals = compute_residuals(h, mu, fits[nepochs].para)
+        if savewhenlocal
+            x = midpoints(h.edges[1])
+            scatter(x, residuals; s = 3)
+            xscale("log")
+            savefig("test.pdf")
+            close()
+        end
+        @test abs(mean(residuals)) < 3/sqrt(200)
+        @test abs(std(residuals) - 1) < 3/sqrt(200)
+    end
 
-    inN = map(t->noft(t, ints, inns), grid)
-    fN = map(t->noft(t, fts, fns), grid)
-    eN = map(t->noft(t, fts, erfns), grid)
-    @test all(abs.((inN - fN) ./ erfns) .< 3)
-    if savewhenlocal
-        plot(grid, inN, label = "input N", color = "red")
-        plot(grid, fN, label = "fitted N", color = "blue")
-        plot(grid, fN .+ eN, color = "grey")
-        plot(grid, fN .- eN, color = "grey")
-        xscale("log")
-        legend()
-        savefig("diagnosticPlots/fit-$(length(TN)÷2)epochs-mu$mu-rho$rho.pdf.pdf")
-        close()
+    @testset "fit $(length(TN)÷2) epochs,  mu $mu, rho $rho" for (mu,rho,TN) in itr
+        h = Histogram(LogEdgeVector(lo = 1, hi = 1_000_000, nbins = 200))
+        ibs_segments = get_sim(TN, mu, rho)
+        append!(h, ibs_segments)
+        Ltot = sum(ibs_segments)
+        fits = map(n->demoinfer(h, n, mu, rho, Ltot), 1:7)
+        best = compare_models(fits)
+        @show length(get_para(best))÷2
+
+        grid = logrange(1, 1e7, length = 1000)
+        fts = MLDs.ordts(get_para(best))
+        fns = MLDs.ordns(get_para(best))
+        erfns = MLDs.ordns(sds(best))
+        ints = MLDs.ordts(TN)
+        inns = MLDs.ordns(TN)
+
+        inN = map(t->noft(t, ints, inns), grid)
+        fN = map(t->noft(t, fts, fns), grid)
+        eN = map(t->noft(t, fts, erfns), grid)
+        @test all(abs.((inN - fN) ./ erfns) .< 3)
+        if savewhenlocal
+            plot(grid, inN, label = "input N", color = "red")
+            plot(grid, fN, label = "fitted N", color = "blue")
+            plot(grid, fN .+ eN, color = "grey")
+            plot(grid, fN .- eN, color = "grey")
+            xscale("log")
+            legend()
+            savefig("diagnosticPlots/fit-$(length(TN)÷2)epochs-mu$mu-rho$rho.pdf.pdf")
+            close()
+        end
     end
 end
 
