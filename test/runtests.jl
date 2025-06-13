@@ -4,6 +4,7 @@ using HistogramBinnings
 using Distributions
 using StatsBase, StatsAPI
 using Test
+using MLDs
 
 using DemoInfer.Logging
 disable_logging(Logging.Warn)
@@ -116,11 +117,20 @@ end
     erfns = MLDs.ordns(sds(best))
     ints = MLDs.ordts(TN)
     inns = MLDs.ordns(TN)
-    for t in grid
-        inN = noft(t, ints, inns)
-        fN = noft(t, fts, fns)
-        eN = noft(t, fts, erfns)
-        @test abs((inN - fN) / erfns) < 3
+
+    inN = map(t->noft(t, ints, inns), grid)
+    fN = map(t->noft(t, fts, fns), grid)
+    eN = map(t->noft(t, fts, erfns), grid)
+    @test all(abs.((inN - fN) ./ erfns) .< 3)
+    if savewhenlocal
+        plot(grid, inN, label = "input N", color = "red")
+        plot(grid, fN, label = "fitted N", color = "blue")
+        plot(grid, fN .+ eN, color = "grey")
+        plot(grid, fN .- eN, color = "grey")
+        xscale("log")
+        legend()
+        savefig("diagnosticPlots/fit-$(length(TN)÷2)epochs-mu$mu-rho$rho.pdf.pdf")
+        close()
     end
 end
 
