@@ -95,7 +95,7 @@ end
             x = midpoints(h.edges[1])
             scatter(x, residuals; s = 3)
             xscale("log")
-            savefig("test.pdf")
+            savefig("prefit$(length(TN)÷2)epochs$mu$rho.pdf")
             close()
         end
         @test abs(mean(residuals)) < 3/sqrt(200)
@@ -111,7 +111,8 @@ end
         best = compare_models(fits)
         @show length(get_para(best))÷2
 
-        grid = logrange(1, 1e7, length = 1000)
+        logrid = 1:log(1e7)/1000:log(1e7)
+        grid = exp.(logrid)
         fts = MLDs.ordts(get_para(best))
         fns = MLDs.ordns(get_para(best))
         erfns = MLDs.ordns(sds(best))
@@ -121,7 +122,7 @@ end
         inN = map(t->noft(t, ints, inns), grid)
         fN = map(t->noft(t, fts, fns), grid)
         eN = map(t->noft(t, fts, erfns), grid)
-        @test all(abs.((inN - fN) ./ erfns) .< 3)
+        @test all(abs.((inN - fN) ./ eN) .< 3)
         if savewhenlocal
             plot(grid, inN, label = "input N", color = "red")
             plot(grid, fN, label = "fitted N", color = "blue")
@@ -129,7 +130,7 @@ end
             plot(grid, fN .- eN, color = "grey")
             xscale("log")
             legend()
-            savefig("diagnosticPlots/fit-$(length(TN)÷2)epochs-mu$mu-rho$rho.pdf.pdf")
+            savefig("fit$(length(TN)÷2)epochs$mu$rho.pdf")
             close()
         end
     end
