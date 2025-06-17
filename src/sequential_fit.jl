@@ -55,17 +55,27 @@ function timesplitter(h::Histogram, mu::Float64, prev_para::Vector{T}, tprevious
         frame, pos = true, threshold, smallest_segment
     )
     if iszero(t1)
-    t1 = initializer(h, mu, prev_para;
-        frame=frame/2, pos = true, threshold, smallest_segment
-    )
+        t1 = initializer(h, mu, prev_para;
+            frame=frame/2, pos = true, threshold, smallest_segment
+        )
+    end
+    if iszero(t1)
+        t1 = initializer(h, mu, prev_para;
+            frame=frame/4, pos = true, threshold, smallest_segment
+        )
     end
     t2 = initializer(h, mu, prev_para;
         frame, pos = false, threshold, smallest_segment
     )
     if iszero(t2)
-    t2 = initializer(h, mu, prev_para;
-        frame=frame/2, pos = false, threshold, smallest_segment
-    )
+        t2 = initializer(h, mu, prev_para;
+            frame=frame/2, pos = false, threshold, smallest_segment
+        )
+    end
+    if iszero(t2)
+        t2 = initializer(h, mu, prev_para;
+            frame=frame/4, pos = false, threshold, smallest_segment
+        )
     end
     t = min(t1, t2)
     if any(t .== tprevious)
