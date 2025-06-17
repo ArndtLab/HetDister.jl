@@ -83,7 +83,7 @@ function noft(t::Number, ts::Vector, ns::Vector)
 end
 
 @testset "fitting procedure" begin
-    @testset "eaxhaustive pre-fit $(length(TN)÷2) epochs,  mu $mu, rho $rho" Threads.@threads for (mu,rho,TN) in itr
+    @testset "eaxhaustive pre-fit $(length(TN)÷2) epochs,  mu $mu, rho $rho" for (mu,rho,TN) in itr
         h = Histogram(LogEdgeVector(lo = 1, hi = 1_000_000, nbins = 200))
         ibs_segments = get_sim(TN, mu, rho)
         append!(h, ibs_segments)
