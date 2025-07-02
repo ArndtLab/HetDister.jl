@@ -1,7 +1,7 @@
 name = "DemoInfer"
 uuid = "50651ce3-0423-45d2-b99c-8ea4267d2717"
 authors = ["Tommaso Stentella <stentell@molgen.mpg.de> and contributors"]
-version = "0.4.1"
+version = "0.4.2"
 
 [deps]
 Accessors = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"
@@ -30,7 +30,7 @@ HistogramBinnings = "0.1"
 KissSmoothing = "1.0.8"
 LinearAlgebra = "1.10.7 - 1.11.0, 1"
 Logging = "1.10.7 - 1.11.0, 1"
-MLDs = "0.1.0"
+MLDs = "0.1.0 - 2"
 Optim = "1.9.4"
 PopSimIBX = "0.2.2 - 0.4.0"
 Printf = "1.10.7 - 1.11.0, 1"
