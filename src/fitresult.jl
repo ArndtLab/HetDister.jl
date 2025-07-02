@@ -144,7 +144,7 @@ function FitOptions(Ltot::Number;
     perturbations = Perturbation[],
     solver = LBFGS(),
     opt = Optim.Options(;iterations = 20000, allow_f_increases=true, time_limit = 600, g_tol = 5e-8),
-    Tlow = 10, Tupp = 1e5,
+    Tlow = 10, Tupp = 1e7,
     Nlow = 10, Nupp = 1e5,
     level = 0.95
 )
