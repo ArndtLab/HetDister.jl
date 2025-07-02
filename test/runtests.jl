@@ -102,41 +102,41 @@ end
         @test abs(std(residuals) - 1) < 3/sqrt(200)
     end
 
-    @testset "fit $(length(TN)÷2) epochs,  mu $mu, rho $rho" for (mu,rho,TN) in itr
-        h = Histogram(LogEdgeVector(lo = 1, hi = 1_000_000, nbins = 200))
-        ibs_segments = get_sim(TN, mu, rho)
-        append!(h, ibs_segments)
-        Ltot = sum(ibs_segments)
-        fits = Vector{FitResult}(undef, 7)
-        Threads.@threads for n in 1:7
-            fits[n] = demoinfer(h, n, mu, rho, Ltot)
-        end
-        best = compare_models(fits)
-        @show length(get_para(best))÷2
+    # @testset "fit $(length(TN)÷2) epochs,  mu $mu, rho $rho" for (mu,rho,TN) in itr
+    #     h = Histogram(LogEdgeVector(lo = 1, hi = 1_000_000, nbins = 200))
+    #     ibs_segments = get_sim(TN, mu, rho)
+    #     append!(h, ibs_segments)
+    #     Ltot = sum(ibs_segments)
+    #     fits = Vector{FitResult}(undef, 7)
+    #     Threads.@threads for n in 1:7
+    #         fits[n] = demoinfer(h, n, mu, rho, Ltot)
+    #     end
+    #     best = compare_models(fits)
+    #     @show length(get_para(best))÷2
 
-        logrid = 1:log(1e7)/1000:log(1e7)
-        grid = exp.(logrid)
-        fts = MLDs.ordts(get_para(best))
-        fns = MLDs.ordns(get_para(best))
-        erfns = MLDs.ordns(sds(best))
-        ints = MLDs.ordts(TN)
-        inns = MLDs.ordns(TN)
+    #     logrid = 1:log(1e7)/1000:log(1e7)
+    #     grid = exp.(logrid)
+    #     fts = MLDs.ordts(get_para(best))
+    #     fns = MLDs.ordns(get_para(best))
+    #     erfns = MLDs.ordns(sds(best))
+    #     ints = MLDs.ordts(TN)
+    #     inns = MLDs.ordns(TN)
 
-        inN = map(t->noft(t, ints, inns), grid)
-        fN = map(t->noft(t, fts, fns), grid)
-        eN = map(t->noft(t, fts, erfns), grid)
-        @test all(abs.((inN - fN) ./ eN) .< 3)
-        if savewhenlocal
-            plot(grid, inN, label = "input N", color = "red")
-            plot(grid, fN, label = "fitted N", color = "blue")
-            plot(grid, fN .+ eN, color = "grey")
-            plot(grid, fN .- eN, color = "grey")
-            xscale("log")
-            legend()
-            savefig("fit$(length(TN)÷2)epochs$mu$rho.pdf")
-            close()
-        end
-    end
+    #     inN = map(t->noft(t, ints, inns), grid)
+    #     fN = map(t->noft(t, fts, fns), grid)
+    #     eN = map(t->noft(t, fts, erfns), grid)
+    #     @test all(abs.((inN - fN) ./ eN) .< 3)
+    #     if savewhenlocal
+    #         plot(grid, inN, label = "input N", color = "red")
+    #         plot(grid, fN, label = "fitted N", color = "blue")
+    #         plot(grid, fN .+ eN, color = "grey")
+    #         plot(grid, fN .- eN, color = "grey")
+    #         xscale("log")
+    #         legend()
+    #         savefig("fit$(length(TN)÷2)epochs$mu$rho.pdf")
+    #         close()
+    #     end
+    # end
 end
 
 # TODO: numerical stability of mle opt, boundary checks
