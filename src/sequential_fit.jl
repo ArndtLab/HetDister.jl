@@ -1,4 +1,9 @@
-function initializer(h::Histogram, mu::Float64, prev_para::Vector{T};
+function tcondr(r::Number, para::Vector{T}, mu::Number) where T<:Number
+    return 1 / (mu * (25r)^(1/1.3))
+    # return 1 / (mu * r) # this works but in some cases the convergence is slower
+end
+
+function deviant(h::Histogram, mu::Float64, prev_para::Vector{T};
     frame::Number = 20, 
     pos::Bool = true,
     threshold::Float64 = 0.,
@@ -24,119 +29,61 @@ function initializer(h::Histogram, mu::Float64, prev_para::Vector{T};
         end
         j += z
     end
-
+    found = zeros(1)
     for j in eachindex(divide[1:end-1])
-        if divide[j] == 0 && divide[j+1] == 1
-            t = 1 / (mu * (25r[j])^(1/1.3))
+        if divide[j] != divide[j+1]
+            t = tcondr(r[j], prev_para, mu)
             @debug "identified deviation " r[j]
-            return t
+            push!(found, t)
         end
     end
-    return 0.
+    return found
 end
 
-function timesplitter(h::Histogram, mu::Float64, prev_para::Vector{T}, tprevious::Vector;
+function timesplitter(h::Histogram, mu::Float64, prev_para::Vector{T};
     frame::Number = 20,
     threshold::Float64 = 0.,
     smallest_segment::Int = 30
 ) where {T <: Number}
-    t1 = initializer(h, mu, prev_para; 
+    t1 = deviant(h, mu, prev_para; 
         frame, pos = true, threshold, smallest_segment
     )
     if iszero(t1)
-    t1 = initializer(h, mu, prev_para;
-        frame=frame/2, pos = true, threshold, smallest_segment
-    )
+        t1 = deviant(h, mu, prev_para;
+            frame=frame/2, pos = true, threshold, smallest_segment
+        )
     end
-    t2 = initializer(h, mu, prev_para;
+    if iszero(t1)
+        t1 = deviant(h, mu, prev_para;
+            frame=frame/4, pos = true, threshold, smallest_segment
+        )
+    end
+    t2 = deviant(h, mu, prev_para;
         frame, pos = false, threshold, smallest_segment
     )
     if iszero(t2)
-    t2 = initializer(h, mu, prev_para;
-        frame=frame/2, pos = false, threshold, smallest_segment
-    )
+        t2 = deviant(h, mu, prev_para;
+            frame=frame/2, pos = false, threshold, smallest_segment
+        )
     end
-    t = min(t1, t2)
-    if any(t .== tprevious)
-    t = max(t1, t2)
+    if iszero(t2)
+        t2 = deviant(h, mu, prev_para;
+            frame=frame/4, pos = false, threshold, smallest_segment
+        )
     end
-    if iszero(t1)
-    t = t2
-    elseif iszero(t2)
-    t = t1
-    end
-    @debug "initializer results " t1 t2 t
-    return t
+    @debug "deviant results " t1 t2
+    return vcat(t1, t2)
 end
 
-# function timesplitter(h::Histogram, mu::Float64, prev_para::Vector{T}; 
-#     n_nodes::Int = 35
-# ) where {T <: Number}
-#     N0 = prev_para[2]
-#     xs = log.(midpoints(h.edges[1]))
-#     w0 = integral_ws(h.edges[1].edges, mu, prev_para)
-#     ys = (h.weights - w0) ./ sqrt.(w0)
-#     nodes = LinRange(xs[1],xs[end],n_nodes)
-#     fitsp = fit_nspline(xs,ys,nodes)
-#     drs = ForwardDiff.derivative.(x->ForwardDiff.derivative(fitsp,x), nodes)
-
-#     # spline 2nd derivative is piecewise linear, find zeros
-#     inflections = Float64[]
-#     for i in 1:length(drs)-1
-#         if drs[i] * drs[i+1] < 0
-#             m = (drs[i+1] - drs[i]) / (nodes[i+1] - nodes[i])
-#             b = drs[i] - m * nodes[i]
-#             x = -b/m
-#             push!(inflections, x)
-#         end
-#     end
-#     shoulder = argmin(abs.(inflections .- log(1/4mu/N0)))
-
-#     # find maximum difference between spline and linear interpolation between inflections
-#     deviations = Float64[]
-#     for i in 1:length(inflections)
-#         xp = i == 1 ? xs[1] : inflections[i-1]
-#         xn = inflections[i]
-#         m = (fitsp(xn) - fitsp(xp)) / (xn - xp)
-#         b = fitsp(xp) - m * xp
-#         devs = fitsp.(xp:0.01:xn) - (m * (xp:0.01:xn) .+ b)
-#         argmaxdev = argmax(abs.(devs))
-#         push!(deviations, devs[argmaxdev])
-#     end
-#     xp = inflections[end]
-#     xn = xs[end]
-#     m = (fitsp(xn) - fitsp(xp)) / (xn - xp)
-#     b = fitsp(xp) - m * xp
-#     devs = fitsp.(xp:0.01:xn) - (m * (xp:0.01:xn) .+ b)
-#     argmaxdev = argmax(abs.(devs))
-#     push!(deviations, devs[argmaxdev])
-
-#     # rough prioritization of inflections, for splitting, may be unnecessary
-#     # scores = similar(inflections)
-#     # for i in 1:length(inflections)
-#     #     scores[i] = abs(deviations[i])+abs(deviations[i+1])
-#     #     if i == shoulder
-#     #         scores[i] = abs(deviations[i]+deviations[i+1])
-#     #     end
-#     # end
-#     # I = sortperm(scores, rev=true)
-#     # inflections = inflections[I]
-#     inflections .= exp.(inflections)
-#     ts = (exp.((inflections*4N0*mu).^0.35) .+ 1e5) ./ exp.((inflections*4N0*mu).^0.35)
-#     # ts = 1 ./ (mu * (25inflections).^(1/1.3))
-#     return ts
-# end
-
 function epochfinder!(init::Vector{T}, N0, t, fop::FitOptions) where {T <: Number}
-    # t = min(t, 12N0) # permissive upper bound to 12 times the ancestral population size
     ts = reverse(pushfirst!(cumsum(init[end-1:-2:3]),0))
     split_epoch = findfirst(ts .< t)
-    # @debug "split epoch " split_epoch
+    isnothing(split_epoch) && (split_epoch = 1)
 
     if split_epoch == 1
         newT = t - ts[1]
         newT = max(newT, 1000)
-        newN = init[2]
+        newN = N0
         insert!(init, 3, newN)
         insert!(init, 3, newT)
     else
@@ -144,7 +91,7 @@ function epochfinder!(init::Vector{T}, N0, t, fop::FitOptions) where {T <: Numbe
         newT1 = max(newT1, 20)
         newT2 = t - ts[split_epoch]
         newT2 = max(newT2, 20)
-        newN = init[2split_epoch]
+        newN = init[2split_epoch] * 0.99
         if newN > (fop.upp[2split_epoch] / 1.01)
             newN = N0
         end
@@ -156,10 +103,10 @@ function epochfinder!(init::Vector{T}, N0, t, fop::FitOptions) where {T <: Numbe
 end
 
 function perturb_fit!(f::FitResult, h::Histogram, mu::Float64, fop::FitOptions;
-    by_pass::Bool = true,
+    by_pass::Bool = false,
     isrnd::Bool = true
 )
-    if (evd(f) == Inf) || any(f.opt.at_lboundary) || any(f.opt.at_uboundary[2:end])
+    if isinf(evd(f)) || any(f.opt.at_lboundary) || any(f.opt.at_uboundary[2:end]) || !f.converged
         if isrnd
             factors = mapreduce( i->fill(i, 10), vcat, [0.001, 0.01, 0.1, 0.5, 0.5, 0.9, 2] )
             for fct in factors
@@ -172,8 +119,12 @@ function perturb_fit!(f::FitResult, h::Histogram, mu::Float64, fop::FitOptions;
                 setinit!(fop, f.para)
                 fop.perturbations = perturbations
                 f = fit_model_epochs(h, mu, fop)
-                if (evd(f) != Inf) && !(any(f.opt.at_lboundary[1:end-2]) && by_pass)
-                    break
+                if (evd(f) != Inf)
+                    if by_pass
+                        break
+                    elseif !any(f.opt.at_lboundary[1:end-2])
+                        break
+                    end
                 end
             end
         else
@@ -215,29 +166,46 @@ See also [`FitResult`](@ref).
 same as in [`demoinfer`](@ref).
 """
 function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
-    Tlow::Int=10, Nlow::Int=10, Nupp::Int=100000,
+    Tlow::Int=10, Tupp=1e7, Nlow::Int=10, Nupp::Int=100000,
     smallest_segment::Int = 30,
-    require_convergence::Bool = true
+    require_convergence::Bool = true,
+    force::Bool = false
 )
     fits = Vector{FitResult}(undef, nfits)
-    tprevious = [0.]
+    N0 = sum(h.weights) / Ltot / 4mu
     for i in 1:nfits
-        fop = FitOptions(Ltot; nepochs = i, Tlow, Nlow, Nupp)
+        fop = FitOptions(Ltot; nepochs = i, Tlow, Tupp, Nlow, Nupp)
         if i == 1
             f = fit_model_epochs(h, mu, fop)
-            push!(tprevious, 20 * f.para[2])
         else
-            t = timesplitter(h, mu, fits[i-1].para, tprevious; smallest_segment=smallest_segment)
-            if iszero(t)
+            ts = timesplitter(h, mu, fits[i-1].para; smallest_segment)
+            if iszero(ts)
                 @info "pre_fit: no split found, epoch $i"
+                if !force
+                    return fits
+                else
+                    r = midpoints(h.edges[1])
+                    push!(ts, tcondr(rand(r), fits[i-1].para, mu))
+                    push!(ts, tcondr(rand(r), fits[i-1].para, mu))
+                end
+            end
+            fs = []
+            for t in ts
+                if t != 0
+                    init = copy(fits[i-1].para)
+                    epochfinder!(init, N0, t, fop)
+                    setinit!(fop, init)
+                    f = fit_model_epochs(h, mu, fop)
+                    push!(fs, f)
+                end
+            end
+            fs = filter(f->f.converged, fs)
+            if isempty(fs)
+                @info "all possible splits did not converge, epoch $i"
                 return fits
             end
-            push!(tprevious, t)
-            init = copy(fits[i-1].para)
-            epochfinder!(init, fits[1].para[2], t, fop)
-            setinit!(fop, init)
-            updateTupp!(fop, 10init[2])
-            f = fit_model_epochs(h, mu, fop)
+            lps = map(f->f.lp, fs)
+            f = fs[argmax(lps)]
             f = perturb_fit!(f, h, mu, fop)
             if require_convergence && !f.converged
                 @info "pre_fit: not converged, epoch $i"
@@ -246,8 +214,7 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
         end
 
         if any(isnan.(f.para))
-            @info "pre_fit: nan para, epoch $i" f.para
-            return fits
+            @error "NaN parameters" f.para
         end
 
         fits[i] = f

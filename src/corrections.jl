@@ -48,11 +48,11 @@ the input genome. At each iteration the factor is changed according to the annea
 and `it` the iteration index.
 """
 function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64}; 
-    iters::Int = 5,
+    iters::Int = 6,
     burnin::Int = 3,
     allow_boundary::Bool = false,
     level::Float64 = 0.95,
-    Tlow::Int = 10,
+    Tlow::Int = 10, Tupp = 1e7,
     Nlow::Int = 10, Nupp::Int = 100000,
     smallest_segment::Int = 30,
     annealing = Sq()
@@ -65,7 +65,7 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
     h_sim = HistogramBinnings.Histogram(h_obs.edges)
     ho_mod = HistogramBinnings.Histogram(h_obs.edges)
 
-    fop = FitOptions(Ltot; nepochs, init, Tlow, Nlow, Nupp)
+    fop = FitOptions(Ltot; nepochs, init, Tlow, Tupp, Nlow, Nupp)
 
     chain = FitResult[]
     corrections = []
@@ -82,19 +82,9 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
         temp .= round.(Int, temp)
         ho_mod.weights .= max.(temp, 0)
         
-        updateTupp!(fop, 10init[2])
         f = fit_model_epochs(ho_mod, mu, fop)
+        # f = pre_fit(ho_mod, nepochs, mu, Ltot; Tlow, Tupp, Nlow, Nupp, smallest_segment)[nepochs]
         f = perturb_fit!(f, ho_mod, mu, fop)
-        if (evd(f) == Inf) || any(f.opt.at_lboundary[1:end-2]) || any(f.opt.at_uboundary[2:end])
-            @info "fit failed, fallback on sequential fit"
-            f_ = pre_fit(ho_mod, nepochs, mu, Ltot; Tlow, Nlow, Nupp, smallest_segment)
-            if !isassigned(f_, nepochs)
-                @warn "fit failed, consider reducing the number of epochs, currently set at $nepochs"
-            else
-                f = f_[nepochs]
-                f = perturb_fit!(f, ho_mod, mu, fop)
-            end
-        end
 
         init = f.para
         setinit!(fop, init)
@@ -109,33 +99,10 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
     correction = zeros(length(h_obs.weights))
     sample_size = 0
     for j in burnin:iters
-        if (!any(chain[j].opt.at_lboundary[1:end-2]) &&
-            !any(chain[j].opt.at_uboundary[3:2:end-1]) &&
-            chain[j].converged &&
+        if (chain[j].converged &&
             !isinf(evd(chain[j])) &&
-            all(chain[j].opt.pvalues .< 0.05)
+            any(chain[j].opt.pvalues[2:2:end] .< 0.05)
         )
-            if allow_boundary
-                estimate .+= chain[j].para
-                estimate_sd .+= sds(chain[j]) .^2
-                evidence += evd(chain[j])
-                lp += chain[j].lp
-                correction .+= corrections[j]
-                sample_size += 1
-            elseif !any(chain[j].opt.at_uboundary[2:2:end])
-                estimate .+= chain[j].para
-                estimate_sd .+= sds(chain[j]) .^2
-                evidence += evd(chain[j])
-                lp += chain[j].lp
-                correction .+= corrections[j]
-                sample_size += 1
-            end
-        end
-    end
-    if sample_size == 0
-        @debug "all fits discarded"
-        # return nullFit(nepochs, mu, init, [chain,corrections])
-        for j in burnin:iters
             estimate .+= chain[j].para
             estimate_sd .+= sds(chain[j]) .^2
             evidence += evd(chain[j])
@@ -182,7 +149,7 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
         evidence,
         (; 
             init,
-            chain, corrections, sample_size,
+            chain, corrections, #sample_size,
             zscore,
             pvalues = p, ci_low, ci_high,
             h_obs, corrected_weights
@@ -197,12 +164,12 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
     burnin::Int = 3,
     allow_boundary::Bool = false,
     level::Float64 = 0.95,
-    Tlow::Int = 10,
+    Tlow::Int = 10, Tupp = 1e7,
     Nlow::Int = 10, Nupp::Int = 100000,
     smallest_segment::Int = 30,
     annealing = Sq()
 )
-    f = pre_fit(h_obs, nepochs, mu, Ltot; Tlow, Nlow, Nupp, smallest_segment)
+    f = pre_fit(h_obs, nepochs, mu, Ltot; Tlow, Tupp, Nlow, Nupp, smallest_segment, force = true)
     if !isassigned(f, nepochs)
         @warn "fit failed, reduce the number of epochs"
         return nullFit(nepochs, mu, [], [])
@@ -213,7 +180,7 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
         burnin,
         allow_boundary,
         level,
-        Tlow,
+        Tlow, Tupp,
         Nlow, Nupp,
         smallest_segment,
         annealing
@@ -231,10 +198,19 @@ TBD
 function compare_models(models::Vector{FitResult})
     ms = copy(models)
     ms = filter(m->!isinf(evd(m)), ms)
-    ms = filter(m->all(m.opt.pvalues .< 0.05), ms)
+    ms = filter(m->any(m.opt.pvalues[2:2:end] .< 0.05), ms)
+    ms = filter(m->all(m.opt.pvalues[3:2:end-1] .< 0.05), ms)
     if length(ms) > 0
-        evidences = evd.(ms)
-        best = argmax(evidences)
+        best = 1
+        lp = ms[1].lp
+        ev = evd(ms[1])
+        i = 2
+        while (i <= length(ms)) && (evd(ms[i]) > ev) && (ms[i].lp > lp)
+            best = i
+            lp = ms[i].lp
+            ev = evd(ms[i])
+            i += 1
+        end
         return ms[best]
     end
     @warn "none of the models is meaningful"
