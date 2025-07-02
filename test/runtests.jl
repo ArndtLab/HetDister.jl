@@ -35,10 +35,10 @@ itr = Base.Iterators.product(mus,rhos,TNs)
     @test isassigned(stat, 1)
     stat = stat[1]
 
-    tsplit = DemoInfer.initializer(h, mu, get_para(stat))
-    @test tsplit > 0
-    tsplit = DemoInfer.initializer(h, mu, get_para(stat); frame = 10)
-    @test tsplit > 0
+    tsplit = DemoInfer.deviant(h, mu, get_para(stat))
+    @test length(tsplit) >= 1
+    tsplit = DemoInfer.deviant(h, mu, get_para(stat); frame = 10)
+    @test length(tsplit) >= 1
 
     nep = estimate_nepochs(h, mu, TN[1])
     @test nep >= (length(TN) ÷ 2)
