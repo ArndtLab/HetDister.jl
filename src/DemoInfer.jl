@@ -9,7 +9,6 @@ using Printf
 using Logging
 import DynamicPPL, ForwardDiff, Accessors
 using MLDs
-using KissSmoothing
 
 using Logging
 logger = ConsoleLogger(stdout, Logging.Error)
