@@ -166,7 +166,7 @@ See also [`FitResult`](@ref).
 same as in [`demoinfer`](@ref).
 """
 function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
-    Tlow::Int=10, Tupp=1e7, Nlow::Int=10, Nupp::Int=100000,
+    Tlow::Number=10, Tupp::Number=1e7, Nlow::Number=10, Nupp::Number=100000,
     smallest_segment::Int = 30,
     require_convergence::Bool = true,
     force::Bool = false
@@ -189,15 +189,18 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
                     push!(ts, tcondr(rand(r), fits[i-1].para, mu))
                 end
             end
-            fs = []
-            for t in ts
-                if t != 0
-                    init = copy(fits[i-1].para)
-                    epochfinder!(init, N0, t, fop)
-                    setinit!(fop, init)
-                    f = fit_model_epochs(h, mu, fop)
-                    push!(fs, f)
-                end
+            filter!(t->t!=0, ts)
+            fs = Vector{FitResult}(undef, length(ts))
+            fops = Vector{FitOptions}(undef, length(ts))
+            for j in eachindex(fops) 
+                fops[j] = fop
+            end
+            @threads for j in eachindex(ts)
+                init = get_para(fits[i-1])
+                epochfinder!(init, N0, ts[j], fops[j])
+                setinit!(fops[j], init)
+                f = fit_model_epochs(h, mu, fops[j])
+                fs[j] = f
             end
             fs = filter(f->f.converged, fs)
             if isempty(fs)

@@ -9,6 +9,8 @@ using Printf
 using Logging
 import DynamicPPL, ForwardDiff, Accessors
 using MLDs
+using Random
+using Base.Threads
 
 using Logging
 logger = ConsoleLogger(stdout, Logging.Error)

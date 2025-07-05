@@ -44,11 +44,10 @@ itr = Base.Iterators.product(mus,rhos,TNs)
     @test nep >= (length(TN) ÷ 2)
 
     f = demoinfer(h, length(TN)÷2, mu, rho, TN[1], Float64.(TN);
-        iters = 1,
-        burnin = 0
+        iters = 1
     )
     @test length(f.opt.chain) == 1
-    @test !isinf(f.evidence)
+    @test !isinf(evd(f))
     @test !any(f.opt.chain[1].opt.at_lboundary)
     @test !any(f.opt.chain[1].opt.at_uboundary[2:end])
     @test !iszero(get_para(f))
@@ -88,9 +87,9 @@ end
         ibs_segments = get_sim(TN, mu, rho)
         append!(h, ibs_segments)
         Ltot = sum(ibs_segments)
-        fits = pre_fit(h, 7, mu, Ltot, smallest_segment=30)
+        fits = pre_fit(h, 7, mu, Ltot; smallest_segment=2, force = true, Nupp = 1e7)
         nepochs = findlast(i->isassigned(fits, i), eachindex(fits))
-        residuals = compute_residuals(h, mu, fits[nepochs].para)
+        residuals = compute_residuals(h, mu, get_para(fits[nepochs]))
         if savewhenlocal
             x = midpoints(h.edges[1])
             scatter(x, residuals; s = 3)
