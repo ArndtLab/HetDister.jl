@@ -192,7 +192,7 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
             filter!(t->t!=0, ts)
             fs = Vector{FitResult}(undef, length(ts))
             fops = Vector{FitOptions}(undef, length(ts))
-            for j in eachindex(fops) 
+            for j in eachindex(fops)
                 fops[j] = fop
             end
             @threads for j in eachindex(ts)
@@ -202,12 +202,13 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
                 f = fit_model_epochs(h, mu, fops[j])
                 fs[j] = f
             end
-            fs = filter(f->f.converged, fs)
-            if isempty(fs)
-                @info "all possible splits did not converge, epoch $i"
-                return fits
+            conv = filter(f->f.converged, fs)
+            if isempty(conv)
+                # all possible splits did not converge, 
+                # perturbing the best
+                conv = fs
             end
-            lps = map(f->f.lp, fs)
+            lps = map(f->f.lp, conv)
             f = fs[argmax(lps)]
             f = perturb_fit!(f, h, mu, fop)
             if require_convergence && !f.converged
