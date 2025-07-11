@@ -13,9 +13,6 @@ global_logger(logger)
 
 include("Aqua.jl")
 
-const savewhenlocal = false
-if savewhenlocal; using PyPlot; end
-
 TNs = [
     [3000000000, 10000],
     [3000000000, 20000, 60000, 8000, 4000, 16000, 2000, 8000],
@@ -87,16 +84,9 @@ end
         ibs_segments = get_sim(TN, mu, rho)
         append!(h, ibs_segments)
         Ltot = sum(ibs_segments)
-        fits = pre_fit(h, 7, mu, Ltot; smallest_segment=2, force = true, Nupp = 1e7)
+        fits = pre_fit(h, 8, mu, Ltot; smallest_segment=2, force = true, Nupp = 1e7)
         nepochs = findlast(i->isassigned(fits, i), eachindex(fits))
         residuals = compute_residuals(h, mu, get_para(fits[nepochs]))
-        if savewhenlocal
-            x = midpoints(h.edges[1])
-            scatter(x, residuals; s = 3)
-            xscale("log")
-            savefig("prefit$(length(TN)÷2)epochs$mu$rho.pdf")
-            close()
-        end
         @test abs(mean(residuals)) < 3/sqrt(200)
         @test abs(std(residuals) - 1) < 3/sqrt(200)
     end
