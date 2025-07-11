@@ -24,12 +24,11 @@ end
     demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64}; kwargs...)
 
 Fit iteratively `h_obs` with a demographic history of piece-wise constant `nepochs`
-starting from an initial parameter vector.
+starting from an initial parameter vector `init`.
 
 Return a vector of `FitResult`, see [`FitResult`](@ref), `mu` and `rho` are
 the mutation and recombination rates, respectively, per base pair per generation
 and `Ltot` is the total length of the genome, in base pairs.
-Optional argument `init` can be used to provide an initial point for the iterations.
 
 # Arguments
 - `iters::Int=9`: The number of iterations to perform. Due to stochasticity, the rate of success for the fit
@@ -38,12 +37,12 @@ will increase with the number of iterations.
 - `Tlow::Number=10`, `Tupp::Number=1e7`: The lower and upper bounds for the duration of epochs.
 - `Nlow::Number=10`, `Nupp::Number=1e5`: The lower and upper bounds for the population sizes.
 - `annealing=Sq()`: correction is computed by simulating a genome of length `factor` times the length of
-the input genome. At each iteration the factor is changed according to the annealing function. It can be `Flat()`,
-`Lin()` or `Sq()`. It can be a user defined function with signature `(L, it) -> factor` with `L` the genome length
-and `it` the iteration index.
+the input genome. At each iteration the factor is changed according to the annealing function. It can
+be `Flat()`, `Lin()` or `Sq()`. It can be a user defined function with signature `(L, it) -> factor`
+with `L` the genome length and `it` the iteration index.
 - `s::Int=1234`: The random seed for the random number generator, used to compute the correction.
 - `restart::Int=3`: The number of iterations after which the fit is restarted with a different seed.
-- `top::Int=3`: the number of fits which is averaged for the final estimate, having best ranking likelihoods.
+- `top::Int=1`: the number of fits which is averaged for the final estimate, having best ranking likelihoods.
 """
 function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64}; 
     iters::Int = 9,
@@ -53,7 +52,7 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
     annealing = Sq(),
     s::Int = 1234,
     restart::Int = 3,
-    top::Int = 3
+    top::Int = 1
 )
     Random.seed!(s)
 
@@ -74,7 +73,7 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
             init_ = copy(init)
         end
         weights_th = integral_ws(h_obs.edges[1].edges, mu, init_)
-        factor = annealing(Ltot, iter)
+        factor = annealing(Ltot, (iter-1) % restart + 1)
         get_sim!(init_, h_sim, mu, rho; factor)
     
         ho_mod.weights .= h_obs.weights
@@ -84,11 +83,11 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
         temp .= round.(Int, temp)
         ho_mod.weights .= max.(temp, 0)
         
+        setinit!(fop, init_)
         f = fit_model_epochs(ho_mod, mu, fop)
         f = perturb_fit!(f, ho_mod, mu, fop)
 
         init_ = f.para
-        setinit!(fop, init)
         push!(chain, f)
         push!(corrections, diff)
     end
@@ -99,20 +98,23 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
     lp = 0
     correction = zeros(length(h_obs.weights))
     sample_size = 0
-    chain_ = filter(c -> c.converged && !isinf(evd(c)) && any(c.opt.pvalues[2:2:end] .< 0.05), chain)
+    mask = map(c -> c.converged && !isinf(evd(c)), chain)
+    chain_ = chain[mask]
     if isempty(chain_)
-        @warn "no converged fits found, returning null fit"
-        return nullFit(nepochs, mu, [], [])
+        @warn "fits did not converge or have infinite evidence"
+        chain_= chain
+        mask = fill(true, length(chain))
     elseif length(chain_) < top
         @warn "not enough converged fits found, using only $(length(chain_)) fits"
     end
-    sort!(chain_, by = c -> c.lp, rev = true)
+    I = sortperm(chain_, by = c -> c.lp, rev = true)
+    chain_ = chain_[I]
     for j in 1:min(length(chain_),top)
         estimate .+= chain_[j].para
         estimate_sd .+= sds(chain_[j]) .^2
         evidence += evd(chain_[j])
         lp += chain_[j].lp
-        correction .+= corrections[j]
+        correction .+= corrections[mask][I][j]
         sample_size += 1
     end
     estimate ./= sample_size
@@ -187,7 +189,7 @@ and `it` the iteration index.
 - `force::Bool=true`: if `true`, the fit will try to add epochs even when no signal is found.
 - `s::Int=1234`: The random seed for the random number generator, used to compute the correction.
 - `restart::Int=3`: The number of iterations after which the fit is restarted with a different seed.
-- `top::Int=3`: the number of fits which is averaged for the final estimate, having best ranking likelihoods.
+- `top::Int=1`: the number of fits which is averaged for the final estimate, having best ranking likelihoods.
 """
 function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number;
     iters::Int = 9,
@@ -199,15 +201,18 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
     force::Bool = true,
     s::Int = 1234,
     restart::Int = 3,
-    top::Int = 3
+    top::Int = 1
 )
-    f = pre_fit(h_obs, nepochs, mu, Ltot; Tlow, Tupp, Nlow, Nupp, smallest_segment, force)
+    f = pre_fit(h_obs, nepochs, mu, Ltot; 
+        Tlow, Tupp, Nlow, Nupp, smallest_segment,
+        force, require_convergence = false
+    )
     nepochs_ = findlast(i->isassigned(f, i), eachindex(f))
     if nepochs_ < nepochs
         @warn "models above $nepochs did not converge, stopping at $nepochs_"
     end
 
-    results = Vector{FitResult}(undef, nepochs)
+    results = Vector{FitResult}(undef, nepochs_)
     @threads for n in 1:nepochs_
         results[n] = demoinfer(h_obs, n, mu, rho, Ltot, get_para(f[n]); 
             iters, level, Tlow, Tupp, Nlow, Nupp,
@@ -228,7 +233,7 @@ TBD
 """
 function compare_models(models::Vector{FitResult})
     ms = copy(models)
-    ms = filter(m->!isinf(evd(m)), ms)
+    ms = filter(m->!isinf(evd(m)) && m.converged, ms)
     ms = filter(m->any(m.opt.pvalues[2:2:end] .< 0.05), ms)
     ms = filter(m->all(m.opt.pvalues[3:2:end-1] .< 0.05), ms)
     if length(ms) > 0

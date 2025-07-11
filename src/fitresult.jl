@@ -22,24 +22,6 @@ struct FitResult
     opt
 end
 
-nullFit(nepochs,mu,init,chain=nothing) = FitResult(
-    nepochs,
-    0,
-    mu,
-    fill(0., 2nepochs),
-    fill(Inf, 2nepochs),
-    nothing,
-    fill(0., 2nepochs),
-    "",
-    false,
-    -Inf,
-    -Inf,
-    (;
-        init,
-        chain
-    )
-)
-
 function Base.show(io::IO, f::FitResult) 
     model = (f.nepochs == 1 ? "stationary" : "$(f.nepochs) epochs") *
             (f.bin > 1 ? " (binned $(f.bin))" : "")
@@ -143,7 +125,7 @@ function FitOptions(Ltot::Number;
     Ts = nothing,
     perturbations = Perturbation[],
     solver = LBFGS(),
-    opt = Optim.Options(;iterations = 20000, allow_f_increases=true, time_limit = 600, g_tol = 5e-8),
+    opt = Optim.Options(;iterations = 2000, allow_f_increases=true, time_limit = 60, g_tol = 5e-8),
     Tlow = 10, Tupp = 1e7,
     Nlow = 10, Nupp = 1e5,
     level = 0.95
