@@ -62,20 +62,16 @@ function fit_model_epochs(hist::StatsBase.Histogram, mu::Float64, options::FitOp
     pinit = copy(options.init)
     if !isempty(options.perturbations)
         for p in options.perturbations
-            if p.isrnd 
-                if p.factor < 1
-                    pinit[p.par] = rand(
-                        truncated(
-                            LogNormal(log(pinit[p.par]), p.factor),
-                            options.low[p.par],
-                            options.upp[p.par]
-                        )
+            if p.factor < 1
+                pinit[p.par] = rand(
+                    truncated(
+                        LogNormal(log(pinit[p.par]), p.factor),
+                        options.low[p.par],
+                        options.upp[p.par]
                     )
-                else
-                    rand(Uniform(options.low[p.par], options.upp[p.par]))
-                end
+                )
             else
-                pinit[p.par] *= p.factor
+                rand(Uniform(options.low[p.par], options.upp[p.par]))
             end
         end
     end
