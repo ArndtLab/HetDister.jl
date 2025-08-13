@@ -78,9 +78,8 @@ end
 @testset "fitting procedure" begin
     @testset "exhaustive pre-fit $(length(TN)÷2) epochs,  mu $mu, rho $rho" for (mu,rho,TN) in itr
         ibs_segments = get_sim(TN, mu, rho)
-        h = adapt_histogram(ibs_segments; lo = 1, hi = 1_000_000, nbins = 200)
+        h = adapt_histogram(ibs_segments)
         @test all(h.weights .> 0)
-        append!(h, ibs_segments)
         Ltot = sum(ibs_segments)
         fits = pre_fit(h, 8, mu, Ltot; force = true)
         nepochs = findlast(i->isassigned(fits, i), eachindex(fits))
