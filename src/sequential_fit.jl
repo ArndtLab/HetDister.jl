@@ -1,13 +1,12 @@
 function tcondr(r::Number, para::Vector{T}, mu::Number) where T<:Number
-    return 1 / (mu * (25r)^(1/1.3))
-    # return 1 / (mu * r) # this works but in some cases the convergence is slower
+    return [1 / (mu * r), 1 / (mu * (25r)^(1/1.3))]
 end
 
 function deviant(h::Histogram, mu::Float64, prev_para::Vector{T};
-    frame::Number = 20, 
+    frame::Number = 20,
     pos::Bool = true,
     threshold::Float64 = 0.,
-    smallest_segment::Int = 30
+    smallest_segment::Int = 1
 ) where {T <: Number}
 
     # find approximate time of positive (negative) deviation from previous fit
@@ -34,7 +33,7 @@ function deviant(h::Histogram, mu::Float64, prev_para::Vector{T};
         if divide[j] != divide[j+1]
             t = tcondr(r[j], prev_para, mu)
             @debug "identified deviation " r[j]
-            push!(found, t)
+            append!(found, t)
         end
     end
     return found
@@ -43,7 +42,7 @@ end
 function timesplitter(h::Histogram, mu::Float64, prev_para::Vector{T};
     frame::Number = 20,
     threshold::Float64 = 0.,
-    smallest_segment::Int = 30
+    smallest_segment::Int = 1
 ) where {T <: Number}
     t1 = deviant(h, mu, prev_para; 
         frame, pos = true, threshold, smallest_segment
@@ -103,45 +102,28 @@ function epochfinder!(init::Vector{T}, N0, t, fop::FitOptions) where {T <: Numbe
 end
 
 function perturb_fit!(f::FitResult, h::Histogram, mu::Float64, fop::FitOptions;
-    by_pass::Bool = false,
-    isrnd::Bool = true
+    by_pass::Bool = false
 )
     if isinf(evd(f)) || any(f.opt.at_lboundary) || any(f.opt.at_uboundary[2:end]) || !f.converged
-        if isrnd
-            factors = mapreduce( i->fill(i, 10), vcat, [0.001, 0.01, 0.1, 0.5, 0.5, 0.9, 2] )
-            for fct in factors
-                perturbations = Perturbation[]
-                for i in eachindex(f.para)
-                    if f.opt.at_lboundary[i] || (f.opt.at_uboundary[i] && i > 1)
-                        push!(perturbations, Perturbation(isrnd, fct, i))
-                    end
-                end
-                setinit!(fop, f.para)
-                fop.perturbations = perturbations
-                f = fit_model_epochs(h, mu, fop)
-                if (evd(f) != Inf)
-                    if by_pass
-                        break
-                    elseif !any(f.opt.at_lboundary[1:end-2])
-                        break
-                    end
-                end
-            end
-        else
+        factors = mapreduce( i->fill(i, 10), vcat, [0.001, 0.01, 0.1, 0.5, 0.5, 0.9, 2] )
+        for fct in factors
             perturbations = Perturbation[]
             for i in eachindex(f.para)
-                factor = 1.
-                if f.opt.at_lboundary[i]
-                    factor = 2.
-                    push!(perturbations, Perturbation(isrnd, factor, i))
-                elseif f.opt.at_uboundary[i] && (i % 2 == 0)
-                    factor = 0.5
-                    push!(perturbations, Perturbation(isrnd, factor, i))
+                if f.opt.at_lboundary[i] || (f.opt.at_uboundary[i] && i > 1)
+                    push!(perturbations, Perturbation(fct, i))
                 end
             end
             setinit!(fop, f.para)
             fop.perturbations = perturbations
             f = fit_model_epochs(h, mu, fop)
+            fop.perturbations = Perturbation[]
+            if (evd(f) != Inf)
+                if by_pass
+                    break
+                elseif !any(f.opt.at_lboundary[1:end-2])
+                    break
+                end
+            end
         end
     end
     return f
@@ -166,8 +148,8 @@ See also [`FitResult`](@ref).
 same as in [`demoinfer`](@ref).
 """
 function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
-    Tlow::Number=10, Tupp::Number=1e7, Nlow::Number=10, Nupp::Number=100000,
-    smallest_segment::Int = 30,
+    Tlow::Number=10, Tupp::Number=1e7, Nlow::Number=10, Nupp::Number=1e8,
+    smallest_segment::Int = 1,
     require_convergence::Bool = true,
     force::Bool = false
 )
@@ -185,8 +167,8 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
                     return fits
                 else
                     r = midpoints(h.edges[1])
-                    push!(ts, tcondr(rand(r), fits[i-1].para, mu))
-                    push!(ts, tcondr(rand(r), fits[i-1].para, mu))
+                    append!(ts, tcondr(rand(r), fits[i-1].para, mu))
+                    append!(ts, tcondr(rand(r), fits[i-1].para, mu))
                 end
             end
             filter!(t->t!=0, ts)
@@ -200,6 +182,9 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
                 epochfinder!(init, N0, ts[j], fops[j])
                 setinit!(fops[j], init)
                 f = fit_model_epochs(h, mu, fops[j])
+                if !f.converged
+                    f = perturb_fit!(f, h, mu, fops[j])
+                end
                 fs[j] = f
             end
             conv = filter(f->f.converged, fs)
@@ -207,6 +192,7 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
                 # all possible splits did not converge, 
                 # perturbing the best
                 conv = fs
+                @debug "pre_fit: no converged fits, epoch $i"
             end
             lps = map(f->f.lp, conv)
             f = fs[argmax(lps)]
@@ -224,25 +210,4 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
         fits[i] = f
     end
     return fits
-end
-
-"""
-    estimate_nepochs(h::Histogram, mu::Float64, Ltot::Number; max_nepochs::Int = 10, kwargs...)
-
-Estimate the number of epochs needed to fit the histogram `h`.
-
-The mutation rate `mu` is assumed to be per base pairs per generation, 
-and the total length of the genome `Ltot` is in base pairs.
-
-The optional argument `max_nepochs` defines the maximum number of epochs that are explored,
-while the other keyword arguments are passed to [`pre_fit`](@ref).
-"""
-function estimate_nepochs(h::Histogram, mu::Float64, Ltot::Number; max_nepochs::Int = 10, kwargs...)
-    fits = pre_fit(h, max_nepochs, mu, Ltot; require_convergence = false, kwargs...)
-    nepochs = findlast(i->isassigned(fits, i), eachindex(fits))
-    fits = fits[1:nepochs]
-    fits = filter(m-> !isinf(evd(m)) && m.converged, fits)
-    bestev = argmax(evd.(fits))
-    nepochs = fits[bestev].nepochs
-    return nepochs
 end

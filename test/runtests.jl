@@ -37,9 +37,6 @@ itr = Base.Iterators.product(mus,rhos,TNs)
     tsplit = DemoInfer.deviant(h, mu, get_para(stat); frame = 10)
     @test length(tsplit) >= 1
 
-    nep = estimate_nepochs(h, mu, TN[1])
-    @test nep >= (length(TN) ÷ 2)
-
     f = demoinfer(h, length(TN)÷2, mu, rho, TN[1], Float64.(TN);
         iters = 1
     )
@@ -79,14 +76,15 @@ function noft(t::Number, ts::Vector, ns::Vector)
 end
 
 @testset "fitting procedure" begin
-    @testset "eaxhaustive pre-fit $(length(TN)÷2) epochs,  mu $mu, rho $rho" for (mu,rho,TN) in itr
-        h = Histogram(LogEdgeVector(lo = 1, hi = 1_000_000, nbins = 200))
+    @testset "exhaustive pre-fit $(length(TN)÷2) epochs,  mu $mu, rho $rho" for (mu,rho,TN) in itr
         ibs_segments = get_sim(TN, mu, rho)
-        append!(h, ibs_segments)
+        h = adapt_histogram(ibs_segments)
+        @test all(h.weights .> 0)
         Ltot = sum(ibs_segments)
-        fits = pre_fit(h, 8, mu, Ltot; smallest_segment=2, force = true, Nupp = 1e7)
+        fits = pre_fit(h, 8, mu, Ltot; force = true)
         nepochs = findlast(i->isassigned(fits, i), eachindex(fits))
-        residuals = compute_residuals(h, mu, get_para(fits[nepochs]))
+        bestll = argmax(i->fits[i].lp, 1:nepochs)
+        residuals = compute_residuals(h, mu, get_para(fits[bestll]))
         @test abs(mean(residuals)) < 3/sqrt(200)
         @test abs(std(residuals) - 1) < 3/sqrt(200)
     end

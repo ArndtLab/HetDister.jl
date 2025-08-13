@@ -74,7 +74,7 @@ durations(fit::FitResult) = fit.para[3:2:end-1]
     get_chain(fit::FitResult)
 
 Return two matrices containing the chain of fitted parameters
-and std errors respectively.
+and std errors respectively (both as columns).
 """
 function get_chain(fit::FitResult)
     if isempty(findall(keys(fit.opt) .== :chain))
@@ -90,7 +90,6 @@ function get_chain(fit::FitResult)
 end
 
 mutable struct Perturbation
-    isrnd::Bool
     factor::Float64
     par::Int
 end
@@ -125,9 +124,9 @@ function FitOptions(Ltot::Number;
     Ts = nothing,
     perturbations = Perturbation[],
     solver = LBFGS(),
-    opt = Optim.Options(;iterations = 2000, allow_f_increases=true, time_limit = 60, g_tol = 5e-8),
+    opt = Optim.Options(;iterations = 5000, allow_f_increases=true, time_limit = 60, g_tol = 5e-8),
     Tlow = 10, Tupp = 1e7,
-    Nlow = 10, Nupp = 1e5,
+    Nlow = 10, Nupp = 1e8,
     level = 0.95
 )
     N = npar(nepochs, kind)
@@ -168,11 +167,6 @@ function FitOptions(Ltot::Number;
         upp,
         level
     )
-end
-
-function updateTupp!(fop::FitOptions{EpochsFit}, Tupp)
-    fop.upp[3:2:end-1] .= Tupp
-    return nothing
 end
 
 function setinit!(fop::FitOptions{T}, h::Histogram, mu::Float64) where {T<:FitKind}

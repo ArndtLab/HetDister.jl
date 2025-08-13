@@ -23,35 +23,36 @@ end
 """
     demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64}; kwargs...)
 
-Fit iteratively `h_obs` with a demographic history of piece-wise constant `nepochs`
+Fit iteratively histogram `h_obs` with a demographic history of piece-wise constant `nepochs`
 starting from an initial parameter vector `init`.
 
 Return a vector of `FitResult`, see [`FitResult`](@ref), `mu` and `rho` are
-the mutation and recombination rates, respectively, per base pair per generation
-and `Ltot` is the total length of the genome, in base pairs.
+respectively the mutation and recombination rates, per base pair per generation,
+and `Ltot` is the total length of the sequence, in base pairs.
 
-# Arguments
-- `iters::Int=9`: The number of iterations to perform. Due to stochasticity, the rate of success for the fit
-will increase with the number of iterations.
+# Optional Arguments
+- `iters::Int=8`: The number of iterations to perform. Currently automatic check for convergence
+is not implemented.
 - `level::Float64=0.95`: The confidence level for the confidence intervals on the parameters estimates.
 - `Tlow::Number=10`, `Tupp::Number=1e7`: The lower and upper bounds for the duration of epochs.
-- `Nlow::Number=10`, `Nupp::Number=1e5`: The lower and upper bounds for the population sizes.
+- `Nlow::Number=10`, `Nupp::Number=1e8`: The lower and upper bounds for the population sizes.
 - `annealing=Sq()`: correction is computed by simulating a genome of length `factor` times the length of
 the input genome. At each iteration the factor is changed according to the annealing function. It can
 be `Flat()`, `Lin()` or `Sq()`. It can be a user defined function with signature `(L, it) -> factor`
 with `L` the genome length and `it` the iteration index.
 - `s::Int=1234`: The random seed for the random number generator, used to compute the correction.
-- `restart::Int=3`: The number of iterations after which the fit is restarted with a different seed.
-- `top::Int=1`: the number of fits which is averaged for the final estimate, having best ranking likelihoods.
+- `restart::Int=100`: The number of iterations after which the fit is restarted with a different seed. Set
+to a default high number, it should not be needed.
+- `top::Int=1`: the number of fits at chain tail which is averaged for the final estimate.
 """
 function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64}; 
-    iters::Int = 9,
+    iters::Int = 8,
     level::Float64 = 0.95,
     Tlow::Number = 10, Tupp::Number = 1e7,
-    Nlow::Number = 10, Nupp::Number = 1e5,
+    Nlow::Number = 10, Nupp::Number = 1e8,
     annealing = Sq(),
     s::Int = 1234,
-    restart::Int = 3,
+    restart::Int = 100,
     top::Int = 1
 )
     Random.seed!(s)
@@ -90,6 +91,7 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
         init_ = f.para
         push!(chain, f)
         push!(corrections, diff)
+        @show iter
     end
 
     estimate = zeros(length(chain[1].para))
@@ -100,21 +102,21 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
     sample_size = 0
     mask = map(c -> c.converged && !isinf(evd(c)), chain)
     chain_ = chain[mask]
+    conv = true
     if isempty(chain_)
         @warn "fits did not converge or have infinite evidence"
+        conv = false
         chain_= chain
         mask = fill(true, length(chain))
     elseif length(chain_) < top
         @warn "not enough converged fits found, using only $(length(chain_)) fits"
     end
-    I = sortperm(chain_, by = c -> c.lp, rev = true)
-    chain_ = chain_[I]
     for j in 1:min(length(chain_),top)
-        estimate .+= chain_[j].para
-        estimate_sd .+= sds(chain_[j]) .^2
-        evidence += evd(chain_[j])
-        lp += chain_[j].lp
-        correction .+= corrections[mask][I][j]
+        estimate .+= chain_[end-j+1].para
+        estimate_sd .+= sds(chain_[end-j+1]) .^2
+        evidence += evd(chain_[end-j+1])
+        lp += chain_[end-j+1].lp
+        correction .+= corrections[mask][end-j+1]
         sample_size += 1
     end
     estimate ./= sample_size
@@ -150,7 +152,7 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
         chain[end].para_name,
         estimate,
         "iterative fit",
-        true,
+        conv,
         lp,
         evidence,
         (; 
@@ -166,43 +168,53 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
 end
 
 """
-    demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number; kwargs...)
+    demoinfer(segments::Vector{Int}, nepochs::Int, mu::Float64, rho::Float64; kwargs...)
 
-Fit iteratively `h_obs` with a demographic history of piece-wise constant `nepochs`.
+Make an histogram with IBS `segments` and fit it iteratively with a demographic
+history of piece-wise constant `nepochs`.
 
 Return a vector of `FitResult`, see [`FitResult`](@ref), `mu` and `rho` are
-the mutation and recombination rates, respectively, per base pair per generation
-and `Ltot` is the total length of the genome, in base pairs.
-Optional argument `init` can be used to provide an initial point for the iterations.
+respectively the mutation and recombination rates per base pair per generation.
 
-# Arguments
-- `iters::Int=9`: The number of iterations to perform. Due to stochasticity, the rate of success for the fit
-will increase with the number of iterations.
+# Optional Arguments
+- `lo::Int=1`: The lowest segment length to be considered in the histogram
+- `hi::Int=50_000_000`: The highest segment length to be considered in the histogram
+- `nbins::Int=200`: The number of bins to use in the histogram
+- `iters::Int=8`: The number of iterations to perform. Currently automatic check for convergence
+is not implemented.
 - `level::Float64=0.95`: The confidence level for the confidence intervals on the parameters estimates.
 - `Tlow::Number=10`, `Tupp::Number=1e7`: The lower and upper bounds for the duration of epochs.
-- `Nlow::Number=10`, `Nupp::Number=1e5`: The lower and upper bounds for the population sizes.
-- `smallest_segment::Int=30`: The smallest segment size present in the histogram to consider for the optimization.
-- `annealing=Sq()`: correction is computed by simulating a genome of length `factor` times the length of
-the input genome. At each iteration the factor is changed according to the annealing function. It can be `Flat()`,
-`Lin()` or `Sq()`. It can be a user defined function with signature `(L, it) -> factor` with `L` the genome length
-and `it` the iteration index.
-- `force::Bool=true`: if `true`, the fit will try to add epochs even when no signal is found.
+- `Nlow::Number=10`, `Nupp::Number=1e8`: The lower and upper bounds for the population sizes.
+- `smallest_segment::Int=1`: The smallest segment size present in the histogram to consider 
+for the optimization.
+- `annealing=nothing`: correction is computed by simulating a genome of length `factor` times 
+the length of the input genome. At each iteration the factor is changed according to the 
+annealing function. It can be `Flat()`, `Lin()` or `Sq()`. It can be a user defined 
+function with signature `(L, it) -> factor` with `L` the genome length and `it` the
+iteration index. By default it is computed adaptively based on the input data, such 
+that the total expected volume of the histogram is 2e8.
+- `force::Bool=false`: if `true`, the fit will try to add epochs even when no signal is found.
 - `s::Int=1234`: The random seed for the random number generator, used to compute the correction.
-- `restart::Int=3`: The number of iterations after which the fit is restarted with a different seed.
-- `top::Int=1`: the number of fits which is averaged for the final estimate, having best ranking likelihoods.
+- `restart::Int=100`: The number of iterations after which the fit is restarted with
+a different seed. Set to a default high number, it should not be needed.
+- `top::Int=1`: the number of fits at chain tail which is averaged for the final estimate.
 """
-function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number;
-    iters::Int = 9,
+function demoinfer(segments::Vector{Int}, nepochs::Int, mu::Float64, rho::Float64;
+    lo::Int = 1, hi::Int = 50_000_000, nbins::Int = 200,
+    iters::Int = 8,
     level::Float64 = 0.95,
     Tlow::Number = 10, Tupp::Number = 1e7,
-    Nlow::Number = 10, Nupp::Number = 1e5,
-    smallest_segment::Int = 30,
-    annealing = Sq(),
-    force::Bool = true,
+    Nlow::Number = 10, Nupp::Number = 1e8,
+    smallest_segment::Int = 1,
+    annealing = nothing,
+    force::Bool = false,
     s::Int = 1234,
-    restart::Int = 3,
+    restart::Int = 100,
     top::Int = 1
 )
+    h_obs = adapt_histogram(segments; lo, hi, nbins)
+    Ltot = sum(segments)
+
     f = pre_fit(h_obs, nepochs, mu, Ltot; 
         Tlow, Tupp, Nlow, Nupp, smallest_segment,
         force, require_convergence = false
@@ -210,6 +222,13 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
     nepochs_ = findlast(i->isassigned(f, i), eachindex(f))
     if nepochs_ < nepochs
         @warn "models above $nepochs did not converge, stopping at $nepochs_"
+    end
+
+    if isnothing(annealing)
+        target = 2e8
+        thetaL = length(segments)
+        factor = target / thetaL
+        annealing = (L, it) -> factor
     end
 
     results = Vector{FitResult}(undef, nepochs_)
@@ -233,9 +252,7 @@ TBD
 """
 function compare_models(models::Vector{FitResult})
     ms = copy(models)
-    ms = filter(m->!isinf(evd(m)) && m.converged, ms)
-    ms = filter(m->any(m.opt.pvalues[2:2:end] .< 0.05), ms)
-    ms = filter(m->all(m.opt.pvalues[3:2:end-1] .< 0.05), ms)
+    ms = filter(m->isfinite(evd(m)) && m.converged, ms)
     if length(ms) > 0
         best = 1
         lp = ms[1].lp
