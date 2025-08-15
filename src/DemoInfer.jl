@@ -78,7 +78,7 @@ function compute_residuals(h1::Histogram, h2::Histogram; fc1 = 1.0, fc2 = 1.0)
 end
 
 """
-    adapt_histogram(segments::Vector{Int}; lo::Int=1, hi::Int=50_000_000, nbins::Int=200)
+    adapt_histogram(segments::AbstractVector{<:Integer}; lo::Int=1, hi::Int=50_000_000, nbins::Int=200)
 
 Build an histogram from `segments` logbinned between `lo` and `hi`
 with `nbins` bins (see `HistogramBinnings.jl`).
@@ -86,7 +86,7 @@ with `nbins` bins (see `HistogramBinnings.jl`).
 The upper limit is adapted to the maximum observed length, so default value
 is on purpose high.
 """
-function adapt_histogram(segments::Vector{Int}; lo::Int=1, hi::Int=50_000_000, nbins::Int=200)
+function adapt_histogram(segments::AbstractVector{<:Integer}; lo::Int=1, hi::Int=50_000_000, nbins::Int=200)
     h_obs = Histogram(LogEdgeVector(;lo, hi, nbins))
     append!(h_obs, segments)
     l = findlast(h_obs.weights .> 0)

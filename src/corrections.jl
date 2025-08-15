@@ -168,7 +168,7 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
 end
 
 """
-    demoinfer(segments::Vector{Int}, nepochs::Int, mu::Float64, rho::Float64; kwargs...)
+    demoinfer(segments::AbstractVector{<:Integer}, nepochs::Int, mu::Float64, rho::Float64; kwargs...)
 
 Make an histogram with IBS `segments` and fit it iteratively with a demographic
 history of piece-wise constant `nepochs`.
@@ -199,7 +199,7 @@ that the total expected volume of the histogram is 2e8.
 a different seed. Set to a default high number, it should not be needed.
 - `top::Int=1`: the number of fits at chain tail which is averaged for the final estimate.
 """
-function demoinfer(segments::Vector{Int}, nepochs::Int, mu::Float64, rho::Float64;
+function demoinfer(segments::AbstractVector{<:Integer}, nepochs::Int, mu::Float64, rho::Float64;
     lo::Int = 1, hi::Int = 50_000_000, nbins::Int = 200,
     iters::Int = 8,
     level::Float64 = 0.95,

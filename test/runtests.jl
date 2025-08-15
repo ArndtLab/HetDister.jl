@@ -37,10 +37,10 @@ itr = Base.Iterators.product(mus,rhos,TNs)
     tsplit = DemoInfer.deviant(h, mu, get_para(stat); frame = 10)
     @test length(tsplit) >= 1
 
-    f = demoinfer(h, length(TN)÷2, mu, rho, TN[1], Float64.(TN);
+    f = demoinfer(h, length(TN)÷2, mu, rho, TN[1];
         iters = 1
     )
-    f = demoinfer(h, length(TN)÷2, mu, rho, TN[1];
+    f = demoinfer(h, length(TN)÷2, mu, rho, TN[1], Float64.(TN);
         iters = 1
     )
     @test length(f.opt.chain) == 1
