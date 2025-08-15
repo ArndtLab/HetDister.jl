@@ -130,7 +130,7 @@ end
 
 Build two histograms from `segs1` and `segs2`, rescale them for number and
 average heterozygosity and return four vectors containing respectively
-common midpoints for bins, the two rescaled weights and std deviations of
+common midpoints for bins, the two rescaled weights and variances of
 the difference between weights.
 """
 function compare_mlds(segs1::Vector{Int}, segs2::Vector{Int}; lo = 1, hi = 1_000_000, nbins = 200)
@@ -161,29 +161,38 @@ function compare_mlds(segs1::Vector{Int}, segs2::Vector{Int}; lo = 1, hi = 1_000
     while t < length(edges1) && f < length(edges2)
         st, en = edges1[t], edges1[t+1]
         width = edges2[f+1] - edges2[f]
-        if st < edges2[f] < edges2[f+1] < en
+        if st <= edges2[f] < edges2[f+1] < en
             tw[t] += w2[f]
             f += 1
-        elseif st < edges2[f] < en < edges2[f+1]
+        elseif st <= edges2[f] < en < edges2[f+1]
             tw[t] += w2[f] * (en - edges2[f]) / width
             t += 1
-        elseif edges2[f] < st < edges2[f+1] < en
-            tw[t] += w2[f] * (edges2[f+1] - st) / width
+        elseif edges2[f] < st <= edges2[f+1] < en
+            if f == 1
+                tw[t] += w2[f]
+            else
+                tw[t] += w2[f] * (edges2[f+1] - st) / width
+            end
             f += 1
-        elseif edges2[f] < st < en < edges2[f+1]
+        elseif edges2[f] <= st < en < edges2[f+1]
             tw[t] += w2[f] * (en - st) / width
             t += 1
         else
-            @error "disjoint bins"
+            if edges2[f+1] < st && t == 1
+                tw[t] += w2[f]
+                f += 1
+            else
+                @error "disjoint bins"
+            end
         end
     end
     
     rs = midpoints(h1.edges[1]) * theta1
-    sigmas = h1.weights .+ tw * factor^2
+    sigmasq = h1.weights .+ tw * factor^2
     if swap
-        return rs, tw, h1.weights, sigmas
+        return rs, tw, h1.weights, sigmasq
     else
-        return rs, h1.weights, tw, sigmas
+        return rs, h1.weights, tw, sigmasq
     end
 end
 

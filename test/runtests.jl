@@ -40,6 +40,9 @@ itr = Base.Iterators.product(mus,rhos,TNs)
     f = demoinfer(h, length(TN)÷2, mu, rho, TN[1], Float64.(TN);
         iters = 1
     )
+    f = demoinfer(h, length(TN)÷2, mu, rho, TN[1];
+        iters = 1
+    )
     @test length(f.opt.chain) == 1
     @test !isinf(evd(f))
     @test !any(f.opt.chain[1].opt.at_lboundary)

@@ -243,6 +243,51 @@ function demoinfer(segments::Vector{Int}, nepochs::Int, mu::Float64, rho::Float6
 end
 
 """
+Same with an histogram and total length of the segments as input.
+
+It is much lighter to distribute the histogram than the vector of segments
+which may also be streamed directly from disk into the histogram.
+"""
+function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number;
+    iters::Int = 8,
+    level::Float64 = 0.95,
+    Tlow::Number = 10, Tupp::Number = 1e7,
+    Nlow::Number = 10, Nupp::Number = 1e8,
+    smallest_segment::Int = 1,
+    annealing = nothing,
+    force::Bool = false,
+    s::Int = 1234,
+    restart::Int = 100,
+    top::Int = 1
+)
+    f = pre_fit(h_obs, nepochs, mu, Ltot; 
+        Tlow, Tupp, Nlow, Nupp, smallest_segment,
+        force, require_convergence = false
+    )
+    nepochs_ = findlast(i->isassigned(f, i), eachindex(f))
+    if nepochs_ < nepochs
+        @warn "models above $nepochs did not converge, stopping at $nepochs_"
+    end
+
+    if isnothing(annealing)
+        target = 2e8
+        thetaL = sum(h_obs.weights)
+        factor = target / thetaL
+        annealing = (L, it) -> factor
+    end
+
+    results = Vector{FitResult}(undef, nepochs_)
+    @threads for n in 1:nepochs_
+        results[n] = demoinfer(h_obs, n, mu, rho, Ltot, get_para(f[n]); 
+            iters, level, Tlow, Tupp, Nlow, Nupp,
+            annealing, s, restart, top
+        )
+    end
+
+    return results
+end
+
+"""
     compare_models(models::Vector{FitResult})
 
 Compare the models parameterized by `FitResult`s and return the best one.
