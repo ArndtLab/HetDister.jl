@@ -151,7 +151,8 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
     Tlow::Number=10, Tupp::Number=1e7, Nlow::Number=10, Nupp::Number=1e8,
     smallest_segment::Int = 1,
     require_convergence::Bool = true,
-    force::Bool = false
+    force::Bool = false,
+    maxnts::Int = 10
 )
     fits = Vector{FitResult}(undef, nfits)
     N0 = sum(h.weights) / Ltot / 4mu
@@ -172,6 +173,10 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
                 end
             end
             filter!(t->t!=0, ts)
+            ts[ts .> Tupp] .= Tupp
+            unique!(ts)
+            maxnts_ = min(maxnts, length(ts))
+            ts = ts[range(start=1, stop=length(ts), step=length(ts)÷maxnts_)]
             fs = Vector{FitResult}(undef, length(ts))
             fops = Vector{FitOptions}(undef, length(ts))
             for j in eachindex(fops)
