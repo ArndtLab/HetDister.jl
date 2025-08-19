@@ -78,7 +78,7 @@ function fit_model_epochs(hist::StatsBase.Histogram, mu::Float64, options::FitOp
 
     # run the optimization
     model = model_epochs(edges, counts, mu, TNd)
-
+    @assert all(options.low .<= pinit .<= options.upp) "Initial parameters out of bounds: $pinit"
     mle = Optim.optimize(model, MLE(), pinit, options.solver, options.opt)
     
     para = vec(mle.values)
