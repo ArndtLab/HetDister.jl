@@ -80,12 +80,23 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
         ho_mod.weights .= h_obs.weights
     
         diff = (h_sim.weights/factor .- weights_th)
+        diff[1:4] .= 0.
         temp = ho_mod.weights .- diff
         temp .= round.(Int, temp)
         ho_mod.weights .= max.(temp, 0)
         
         setinit!(fop, init_)
         f = fit_model_epochs(ho_mod, mu, fop)
+        ress = compute_residuals(ho_mod, mu, get_para(f))
+        if abs(std(ress) - 1) > 3/sqrt(length(ress))
+            f = pre_fit(ho_mod, nepochs, mu, Ltot;
+                Tlow, Tupp, Nlow, Nupp,
+                smallest_segment = 1,
+                require_convergence = false,
+                force = true
+            )[nepochs]
+            setinit!(fop, get_para(f))
+        end
         f = perturb_fit!(f, ho_mod, mu, fop)
 
         init_ = f.para
@@ -168,7 +179,7 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
 end
 
 """
-    demoinfer(segments::Vector{Int}, nepochs::Int, mu::Float64, rho::Float64; kwargs...)
+    demoinfer(segments::AbstractVector{<:Integer}, nepochs::Int, mu::Float64, rho::Float64; kwargs...)
 
 Make an histogram with IBS `segments` and fit it iteratively with a demographic
 history of piece-wise constant `nepochs`.
@@ -199,7 +210,7 @@ that the total expected volume of the histogram is 2e8.
 a different seed. Set to a default high number, it should not be needed.
 - `top::Int=1`: the number of fits at chain tail which is averaged for the final estimate.
 """
-function demoinfer(segments::Vector{Int}, nepochs::Int, mu::Float64, rho::Float64;
+function demoinfer(segments::AbstractVector{<:Integer}, nepochs::Int, mu::Float64, rho::Float64;
     lo::Int = 1, hi::Int = 50_000_000, nbins::Int = 200,
     iters::Int = 8,
     level::Float64 = 0.95,
@@ -221,12 +232,57 @@ function demoinfer(segments::Vector{Int}, nepochs::Int, mu::Float64, rho::Float6
     )
     nepochs_ = findlast(i->isassigned(f, i), eachindex(f))
     if nepochs_ < nepochs
-        @warn "models above $nepochs did not converge, stopping at $nepochs_"
+        @warn "for models above $nepochs no signal was found, stopping at $nepochs_"
     end
 
     if isnothing(annealing)
         target = 2e8
         thetaL = length(segments)
+        factor = target / thetaL
+        annealing = (L, it) -> factor
+    end
+
+    results = Vector{FitResult}(undef, nepochs_)
+    @threads for n in 1:nepochs_
+        results[n] = demoinfer(h_obs, n, mu, rho, Ltot, get_para(f[n]); 
+            iters, level, Tlow, Tupp, Nlow, Nupp,
+            annealing, s, restart, top
+        )
+    end
+
+    return results
+end
+
+"""
+Same with an histogram and total length of the segments as input.
+
+It is much lighter to distribute the histogram than the vector of segments
+which may also be streamed directly from disk into the histogram.
+"""
+function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number;
+    iters::Int = 8,
+    level::Float64 = 0.95,
+    Tlow::Number = 10, Tupp::Number = 1e7,
+    Nlow::Number = 10, Nupp::Number = 1e8,
+    smallest_segment::Int = 1,
+    annealing = nothing,
+    force::Bool = false,
+    s::Int = 1234,
+    restart::Int = 100,
+    top::Int = 1
+)
+    f = pre_fit(h_obs, nepochs, mu, Ltot; 
+        Tlow, Tupp, Nlow, Nupp, smallest_segment,
+        force, require_convergence = false
+    )
+    nepochs_ = findlast(i->isassigned(f, i), eachindex(f))
+    if nepochs_ < nepochs
+        @warn "for models above $nepochs no signal was found, stopping at $nepochs_"
+    end
+
+    if isnothing(annealing)
+        target = 2e8
+        thetaL = sum(h_obs.weights)
         factor = target / thetaL
         annealing = (L, it) -> factor
     end
@@ -258,7 +314,7 @@ function compare_models(models::Vector{FitResult})
         lp = ms[1].lp
         ev = evd(ms[1])
         i = 2
-        while (i <= length(ms)) && (evd(ms[i]) > ev) && (ms[i].lp > lp)
+        while (i <= length(ms)) && (evd(ms[i]) > ev) && (ms[i].lp >= lp)
             best = i
             lp = ms[i].lp
             ev = evd(ms[i])

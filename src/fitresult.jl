@@ -124,7 +124,7 @@ function FitOptions(Ltot::Number;
     Ts = nothing,
     perturbations = Perturbation[],
     solver = LBFGS(),
-    opt = Optim.Options(;iterations = 5000, allow_f_increases=true, time_limit = 60, g_tol = 5e-8),
+    opt = Optim.Options(;iterations = 6000, allow_f_increases=true, time_limit = 60, g_tol = 5e-8),
     Tlow = 10, Tupp = 1e7,
     Nlow = 10, Nupp = 1e8,
     level = 0.95
@@ -152,7 +152,7 @@ function FitOptions(Ltot::Number;
         upp[2:end] .= Nupp
         low[2:end] .= Nlow
     end
-    upp[1] = Ltot
+    upp[1] = Ltot * 1.001
     low[1] = Ltot * 0.5
 
     return FitOptions{typeof(kind)}(
