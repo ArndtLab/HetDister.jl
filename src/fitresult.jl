@@ -152,7 +152,7 @@ function FitOptions(Ltot::Number;
         upp[2:end] .= Nupp
         low[2:end] .= Nlow
     end
-    upp[1] = Ltot
+    upp[1] = Ltot * 1.001
     low[1] = Ltot * 0.5
 
     return FitOptions{typeof(kind)}(
