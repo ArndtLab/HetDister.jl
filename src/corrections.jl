@@ -80,12 +80,23 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
         ho_mod.weights .= h_obs.weights
     
         diff = (h_sim.weights/factor .- weights_th)
+        diff[1:4] .= 0.
         temp = ho_mod.weights .- diff
         temp .= round.(Int, temp)
         ho_mod.weights .= max.(temp, 0)
         
         setinit!(fop, init_)
         f = fit_model_epochs(ho_mod, mu, fop)
+        ress = compute_residuals(ho_mod, mu, get_para(f))
+        if abs(std(ress) - 1) > 3/sqrt(length(ress))
+            f = pre_fit(ho_mod, nepochs, mu, Ltot;
+                Tlow, Tupp, Nlow, Nupp,
+                smallest_segment = 1,
+                require_convergence = false,
+                force = true
+            )[nepochs]
+            setinit!(fop, get_para(f))
+        end
         f = perturb_fit!(f, ho_mod, mu, fop)
 
         init_ = f.para
@@ -221,7 +232,7 @@ function demoinfer(segments::AbstractVector{<:Integer}, nepochs::Int, mu::Float6
     )
     nepochs_ = findlast(i->isassigned(f, i), eachindex(f))
     if nepochs_ < nepochs
-        @warn "models above $nepochs did not converge, stopping at $nepochs_"
+        @warn "for models above $nepochs no signal was found, stopping at $nepochs_"
     end
 
     if isnothing(annealing)
@@ -266,7 +277,7 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
     )
     nepochs_ = findlast(i->isassigned(f, i), eachindex(f))
     if nepochs_ < nepochs
-        @warn "models above $nepochs did not converge, stopping at $nepochs_"
+        @warn "for models above $nepochs no signal was found, stopping at $nepochs_"
     end
 
     if isnothing(annealing)
@@ -303,7 +314,7 @@ function compare_models(models::Vector{FitResult})
         lp = ms[1].lp
         ev = evd(ms[1])
         i = 2
-        while (i <= length(ms)) && (evd(ms[i]) > ev) && (ms[i].lp > lp)
+        while (i <= length(ms)) && (evd(ms[i]) > ev) && (ms[i].lp >= lp)
             best = i
             lp = ms[i].lp
             ev = evd(ms[i])
