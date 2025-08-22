@@ -37,11 +37,9 @@ end
         @inbounds this_hid_I = hid_integral(TN, mu, edges[i+1] - a)
         m = this_hid_I - last_hid_I
         last_hid_I = this_hid_I
-        # if (m <= 0) || isnan(m)
-        #     Turing.@addlogprob! -Inf
-        #     # Exit the model evaluation early
-        #     return
-        # end
+        if (m < 0) || isnan(m)
+            @error m, TN
+        end
         @inbounds counts[i] ~ Poisson(m)
     end
 end
@@ -71,7 +69,7 @@ function fit_model_epochs(hist::StatsBase.Histogram, mu::Float64, options::FitOp
                     )
                 )
             else
-                rand(Uniform(options.low[p.par], options.upp[p.par]))
+                pinit[p.par] = rand(Uniform(options.low[p.par], options.upp[p.par]))
             end
         end
     end
