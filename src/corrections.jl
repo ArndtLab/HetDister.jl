@@ -87,16 +87,6 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
         
         setinit!(fop, init_)
         f = fit_model_epochs(ho_mod, mu, fop)
-        ress = compute_residuals(ho_mod, mu, get_para(f))
-        if abs(std(ress) - 1) > 3/sqrt(length(ress))
-            f = pre_fit(ho_mod, nepochs, mu, Ltot;
-                Tlow, Tupp, Nlow, Nupp,
-                smallest_segment = 1,
-                require_convergence = false,
-                force = true
-            )[nepochs]
-            setinit!(fop, get_para(f))
-        end
         f = perturb_fit!(f, ho_mod, mu, fop)
 
         init_ = f.para
