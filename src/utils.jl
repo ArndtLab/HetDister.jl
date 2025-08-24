@@ -1,0 +1,297 @@
+"""
+    struct FitResult
+
+A data structure to store the results of a fit.
+
+Some methods are defined for this type to get the vector of parameters, std errors, 
+model evidence, etc. See [`get_para`](@ref), [`sds`](@ref), [`evd`](@ref), 
+[`pop_sizes`](@ref), [`durations`](@ref).
+"""
+struct FitResult
+    nepochs::Int
+    bin::Int
+    mu::Float64
+    para::Vector
+    stderrors::Vector
+    para_name
+    TN::Vector
+    method::String
+    converged::Bool
+    lp::Float64
+    evidence::Float64
+    opt
+end
+
+function Base.show(io::IO, f::FitResult) 
+    model = (f.nepochs == 1 ? "stationary" : "$(f.nepochs) epochs") *
+            (f.bin > 1 ? " (binned $(f.bin))" : "")
+    print(io, "Fit ", model, " ")
+    print(io, f.method, " ")
+    print(io, f.converged ? "●" : "○", " ")
+    print(io, "[", @sprintf("%.1e",f.para[1]))
+    for i in 2:length(f.para)
+        print(io, ", ", @sprintf("%.1f",f.para[i]))
+    end
+    print(io, "] ", @sprintf("logL %.3f",f.lp), @sprintf(" | evidence %.3f",f.evidence))
+end
+
+"""
+    pars(fit::FitResult)
+
+Return the parameters of the fit.
+"""
+get_para(fit::FitResult) = copy(fit.para)
+
+"""
+    sds(fit::FitResult)
+
+Return the standard deviations of the parameters of the fit.
+"""
+sds(fit::FitResult) = copy(fit.stderrors)
+
+"""
+    evd(fit::FitResult)
+
+Return the evidence of the fit.
+"""
+evd(fit::FitResult) = fit.evidence
+
+"""
+    pop_sizes(fit::FitResult)
+
+Return the fitted population sizes, from past to present.
+"""
+pop_sizes(fit::FitResult) = fit.para[2:2:end]
+
+"""
+    durations(fit::FitResult)
+
+Return the fitted durations of the epochs.
+"""
+durations(fit::FitResult) = fit.para[3:2:end-1]
+
+"""
+    get_chain(fit::FitResult)
+
+Return two matrices containing the chain of fitted parameters
+and std errors respectively (both as columns).
+"""
+function get_chain(fit::FitResult)
+    if isempty(findall(keys(fit.opt) .== :chain))
+        return fit.para, fit.stderrors
+    end
+    p = mapreduce(hcat, fit.opt.chain) do x
+        get_para(x)
+    end
+    sd = mapreduce(hcat, fit.opt.chain) do x
+        sds(x)
+    end
+    return p, sd
+end
+
+npar(fit::FitResult) = 2fit.nepochs
+
+mutable struct Deltas
+    factors::Vector{Float64}
+    state::Integer
+end
+
+function nextdelta!(d::Deltas)
+    # assumes to be called from iteration over factors
+    d.state += 1
+    if d.state > length(d.factors)
+        d.state = 1
+    end
+    return d.factors[d.state]
+end
+
+struct LBound <: AbstractVector{Float64}
+    Ltot::Float64
+    Nlow::Float64
+    Tlow::Float64
+    pars::Int
+end
+LBound(Ltot::Number,Nlow::Number,Tlow::Number,pars::Int) = LBound(
+    Float64(Ltot), 
+    Float64(Nlow), 
+    Float64(Tlow),
+    pars
+)
+
+Base.size(lb::LBound) = (lb.pars,)
+
+function Base.getindex(lb::LBound, i::Int)
+    if i == 1
+        return lb.Ltot * 0.5
+    elseif i%2 == 0
+        return lb.Nlow
+    else
+        return lb.Tlow
+    end
+end
+
+struct UBound <: AbstractVector{Float64}
+    Ltot::Float64
+    Nupp::Float64
+    Tupp::Float64
+    pars::Int
+end
+UBound(Ltot::Number,Nupp::Number,Tupp::Number,pars::Int) = UBound(
+    Float64(Ltot), 
+    Float64(Nupp), 
+    Float64(Tupp),
+    pars
+)
+
+Base.size(ub::UBound) = (ub.pars,)
+
+function Base.getindex(ub::UBound, i::Int)
+    if i == 1
+        return ub.Ltot * 1.001
+    elseif i%2 == 0
+        return ub.Nupp
+    else
+        return ub.Tupp
+    end
+end
+
+mutable struct FitOptions
+    nepochs::Int
+    Ltot::Number
+    init::Vector{Float64}
+    perturb::BitVector
+    delta::Deltas
+    solver
+    opt
+    low::LBound
+    upp::UBound
+    prior::Vector{<:Distribution}
+    level::Float64
+    smallest_segment::Int
+    force::Bool
+    maxnts::Int
+end
+
+npar(fop::FitOptions) = 2fop.nepochs
+
+"""
+    FitOptions(Ltot::Number; kwargs...)
+
+Construct an an object of type FitOptions, requiring total genome length `Ltot` in base pairs.
+
+## Optional Arguments
+- `Tlow::Number=10`, `Tupp::Number=1e7`: The lower and upper bounds for the duration of epochs.
+- `Nlow::Number=10`, `Nupp::Number=1e8`: The lower and upper bounds for the population sizes.
+- `level::Float64=0.95`: The confidence level for the confidence intervals on the parameters estimates.
+- `solver`: The solver to use for the optimization, default is `LBFGS()`.
+- `opt`: The optimization options, a named tuple which is passed to SciML solve. 
+Default is `(;maxiters = 6000, allow_f_increases=true, time_limit = 60, reltol = 5e-8)`.
+- `smallest_segment::Int=1`: The smallest segment size present in the histogram to consider 
+for the signal search.
+- `force::Bool=false`: if true try to fit further epochs even when no signal is found.
+- `maxnts::Int=10`: The maximum number of new time splits to consider when adding a new epoch.
+"""
+function FitOptions(Ltot::Number;
+    Tlow = 10, Tupp = 1e7,
+    Nlow = 10, Nupp = 1e8,
+    level = 0.95,
+    solver = LBFGS(),
+    opt = (;maxiters = 6000, allow_f_increases=true, time_limit = 60, reltol = 5e-8),
+    nepochs::Int = 1,
+    smallest_segment::Int = 1,
+    force::Bool = false,
+    maxnts::Int = 10
+)
+    N = 2nepochs
+    init = zeros(N)
+    # set bounds and prior for the parameters
+    upp = UBound(Ltot,Nupp,Tupp,N)
+    low = LBound(Ltot,Nlow,Tlow,N)
+    prior = Uniform.(low,upp)
+    perturb = falses(N)
+    factors = mapreduce( i->fill(i, 10), vcat, [0.001, 0.01, 0.1, 0.5, 0.5, 0.9, 2] )
+    delta = Deltas(factors, 0)
+
+    return FitOptions(
+        nepochs,
+        Ltot,
+        init,
+        perturb,
+        delta,
+        solver,
+        opt,
+        low,
+        upp,
+        prior,
+        level,
+        smallest_segment,
+        force,
+        maxnts
+    )
+end
+
+function setinit!(fop::FitOptions, weights::Vector{<:Integer}, mu::Float64)
+    vol = sum(weights)
+    @assert vol != 0 "Empty histogram!"
+    N = 1/(4*mu*(fop.Ltot/vol)) # can be rough estimate depending on binning
+    n = npar(fop)
+    fop.init[1] = fop.Ltot
+    fop.init[2:end] .= N .* (0.99 .+ rand(n-1) .* 0.02)
+    setinit!(fop, fop.init)
+    return nothing
+end
+
+function setinit!(fop::FitOptions, init::Vector{Float64})
+    @assert length(init) == npar(fop)
+    fop.init .= init
+    for i in eachindex(fop.init)
+        fop.init[i] < fop.low[i] ? fop.init[i] = fop.low[i] * 1.001 : nothing
+        fop.init[i] > fop.upp[i] ? fop.init[i] = fop.upp[i] * 0.999 : nothing
+    end
+    return nothing
+end
+
+function setnepochs!(fop::FitOptions, nepochs::Int)
+    N = 2nepochs
+    fop.nepochs = nepochs
+    fop.init = zeros(N)
+    fop.perturb = falses(N)
+    fop.low = LBound(fop.low.Ltot, fop.low.Nlow, fop.low.Tlow, N)
+    fop.upp = UBound(fop.low.Ltot, fop.upp.Nupp, fop.upp.Tupp, N)
+    fop.prior = Uniform.(fop.low, fop.upp)
+end
+
+function set_perturb!(fop::FitOptions, fit::FitResult)
+    @assert npar(fop) == npar(fit)
+    for i in eachindex(fop.perturb)
+        fop.perturb[i] = fit.opt.at_lboundary[i] || (fit.opt.at_uboundary[i] && i > 1)
+    end
+end
+
+struct PInit <: AbstractVector{Float64}
+    fop::FitOptions
+end
+
+Base.size(p::PInit) = (npar(p.fop),)
+
+function Base.getindex(p::PInit, i::Int)
+    if !p.fop.perturb[i]
+        return p.fop.init[i]
+    else
+        dl = nextdelta!(p.fop.delta)
+        low = p.fop.low[i]
+        upp = p.fop.upp[i]
+        p.fop.perturb .= falses(npar(p.fop))
+        if dl < 1
+            return rand(
+                truncated(
+                    LogNormal(log(p.fop.init[i]), dl),
+                    low,
+                    upp
+                )
+            )
+        else
+            return rand(Uniform(low, upp))
+        end
+    end
+end

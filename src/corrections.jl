@@ -45,12 +45,10 @@ with `L` the genome length and `it` the iteration index.
 to a default high number, it should not be needed.
 - `top::Int=1`: the number of fits at chain tail which is averaged for the final estimate.
 """
-function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64}; 
-    iters::Int = 8,
-    level::Float64 = 0.95,
-    Tlow::Number = 10, Tupp::Number = 1e7,
-    Nlow::Number = 10, Nupp::Number = 1e8,
+function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64};
+    fop::FitOptions = FitOptions(Ltot),
     annealing = Sq(),
+    iters::Int = 8,
     s::Int = 1234,
     restart::Int = 100,
     top::Int = 1
@@ -59,10 +57,13 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
 
     length(init)÷2 == nepochs || @error "init must be in TN format, with 2*nepochs elements"
 
-    h_sim = HistogramBinnings.Histogram(h_obs.edges)
-    ho_mod = HistogramBinnings.Histogram(h_obs.edges)
+    h_sim = Histogram(h_obs.edges)
+    ho_mod = Histogram(h_obs.edges)
 
-    fop = FitOptions(Ltot; nepochs, init, Tlow, Tupp, Nlow, Nupp)
+    if fop.Ltot != Ltot
+        @warn "inconsistent Ltot and FitOptions, taking Ltot"
+        fop.Ltot = Ltot
+    end
 
     chain = FitResult[]
     corrections = []
@@ -73,7 +74,7 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
             Random.seed!(s + iter)
             init_ = copy(init)
         end
-        weights_th = integral_ws(h_obs.edges[1].edges, mu, init_)
+        weights_th = integral_ws(h_obs.edges[1], mu, init_)
         factor = annealing(Ltot, (iter-1) % restart + 1)
         get_sim!(init_, h_sim, mu, rho; factor)
     
@@ -92,7 +93,6 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
         init_ = f.para
         push!(chain, f)
         push!(corrections, diff)
-        @show iter
     end
 
     estimate = zeros(length(chain[1].para))
@@ -169,13 +169,14 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
 end
 
 """
-    demoinfer(segments::AbstractVector{<:Integer}, nepochs::Int, mu::Float64, rho::Float64; kwargs...)
+    demoinfer(segments::AbstractVector{<:Integer}, epochrange::UnitRange{Int}, mu::Float64, rho::Float64; kwargs...)
 
-Make an histogram with IBS `segments` and fit it iteratively with a demographic
-history of piece-wise constant `nepochs`.
+Make an histogram with IBS `segments` and infer demographic histories with
+piece-wise constant epochs where the number of epochs is in `epochrange`.
 
-Return a vector of `FitResult`, see [`FitResult`](@ref), `mu` and `rho` are
-respectively the mutation and recombination rates per base pair per generation.
+Return a vector of `FitResult` of same length as `epochrange`, 
+see [`FitResult`](@ref), `mu` and `rho` are respectively the mutation 
+and recombination rates per base pair per generation.
 
 # Optional Arguments
 - `lo::Int=1`: The lowest segment length to be considered in the histogram
@@ -200,47 +201,15 @@ that the total expected volume of the histogram is 2e8.
 a different seed. Set to a default high number, it should not be needed.
 - `top::Int=1`: the number of fits at chain tail which is averaged for the final estimate.
 """
-function demoinfer(segments::AbstractVector{<:Integer}, nepochs::Int, mu::Float64, rho::Float64;
+function demoinfer(segments::AbstractVector{<:Integer}, epochrange::UnitRange{Int}, mu::Float64, rho::Float64;
+    fop::FitOptions = FitOptions(sum(segments)),
     lo::Int = 1, hi::Int = 50_000_000, nbins::Int = 200,
-    iters::Int = 8,
-    level::Float64 = 0.95,
-    Tlow::Number = 10, Tupp::Number = 1e7,
-    Nlow::Number = 10, Nupp::Number = 1e8,
-    smallest_segment::Int = 1,
-    annealing = nothing,
-    force::Bool = false,
-    s::Int = 1234,
-    restart::Int = 100,
-    top::Int = 1
+    kwargs...
 )
-    h_obs = adapt_histogram(segments; lo, hi, nbins)
-    Ltot = sum(segments)
-
-    f = pre_fit(h_obs, nepochs, mu, Ltot; 
-        Tlow, Tupp, Nlow, Nupp, smallest_segment,
-        force, require_convergence = false
+    h = adapt_histogram(segments; lo, hi, nbins)
+    return demoinfer(h, epochrange, mu, rho, fop.Ltot; 
+        fop = fop, kwargs...
     )
-    nepochs_ = findlast(i->isassigned(f, i), eachindex(f))
-    if nepochs_ < nepochs
-        @warn "for models above $nepochs no signal was found, stopping at $nepochs_"
-    end
-
-    if isnothing(annealing)
-        target = 2e8
-        thetaL = length(segments)
-        factor = target / thetaL
-        annealing = (L, it) -> factor
-    end
-
-    results = Vector{FitResult}(undef, nepochs_)
-    @threads for n in 1:nepochs_
-        results[n] = demoinfer(h_obs, n, mu, rho, Ltot, get_para(f[n]); 
-            iters, level, Tlow, Tupp, Nlow, Nupp,
-            annealing, s, restart, top
-        )
-    end
-
-    return results
 end
 
 """
@@ -249,39 +218,28 @@ Same with an histogram and total length of the segments as input.
 It is much lighter to distribute the histogram than the vector of segments
 which may also be streamed directly from disk into the histogram.
 """
-function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number;
-    iters::Int = 8,
-    level::Float64 = 0.95,
-    Tlow::Number = 10, Tupp::Number = 1e7,
-    Nlow::Number = 10, Nupp::Number = 1e8,
-    smallest_segment::Int = 1,
+function demoinfer(h::Histogram{T,1,E}, epochrange::UnitRange{Int}, mu::Float64, rho::Float64, Ltot::Number;
+    fop::FitOptions = FitOptions(Ltot),
     annealing = nothing,
-    force::Bool = false,
-    s::Int = 1234,
-    restart::Int = 100,
-    top::Int = 1
-)
-    f = pre_fit(h_obs, nepochs, mu, Ltot; 
-        Tlow, Tupp, Nlow, Nupp, smallest_segment,
-        force, require_convergence = false
-    )
-    nepochs_ = findlast(i->isassigned(f, i), eachindex(f))
-    if nepochs_ < nepochs
-        @warn "for models above $nepochs no signal was found, stopping at $nepochs_"
+    kwargs...
+) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
+    f = pre_fit(h, last(epochrange), mu, fop; require_convergence = false)
+    nepochs = length(f)
+    if nepochs < last(epochrange)
+        @warn "for models above $nepochs no signal was found, stopping at $nepochs"
     end
 
     if isnothing(annealing)
         target = 2e8
-        thetaL = sum(h_obs.weights)
+        thetaL = sum(h.weights)
         factor = target / thetaL
         annealing = (L, it) -> factor
     end
 
-    results = Vector{FitResult}(undef, nepochs_)
-    @threads for n in 1:nepochs_
-        results[n] = demoinfer(h_obs, n, mu, rho, Ltot, get_para(f[n]); 
-            iters, level, Tlow, Tupp, Nlow, Nupp,
-            annealing, s, restart, top
+    results = Vector{FitResult}(undef, length(epochrange))
+    @threads for n in eachindex(epochrange)
+        results[n] = demoinfer(h, epochrange[n], mu, rho, Ltot, get_para(f[n]);
+            fop, annealing, kwargs...
         )
     end
 
