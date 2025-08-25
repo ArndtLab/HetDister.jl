@@ -105,16 +105,19 @@ function perturb_fit!(f::FitResult, h::Histogram, mu::Float64, fop::FitOptions;
     by_pass::Bool = false
 )
     if isinf(evd(f)) || any(f.opt.at_lboundary) || any(f.opt.at_uboundary[2:end]) || !f.converged
+        pinit = PInit(fop)
         for fct in fop.delta.factors
+            next!(fop.delta)
             setinit!(fop, f.para)
             set_perturb!(fop, f)
+            setinit!(fop, pinit)
             f = fit_model_epochs(h, mu, fop)
             if (evd(f) != Inf)
                 if by_pass
-                    fop.delta.state = 0
+                    reset_perturb!(fop)
                     break
                 elseif !any(f.opt.at_lboundary[1:end-2])
-                    fop.delta.state = 0
+                    reset_perturb!(fop)
                     break
                 end
             end
@@ -124,22 +127,18 @@ function perturb_fit!(f::FitResult, h::Histogram, mu::Float64, fop::FitOptions;
 end
 
 """
-    pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number; kwargs...)
+    pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number; require_convergence=true)
+    pre_fit(h::Histogram, nfits::Int, mu::Float64, fop::FitOptions; require_convergence=true)
 
-Preliminarily fit `h` with an approximate model of piece-wise constant `nepochs`.
+Preliminarily fit `h` with an approximate model of piece-wise constant 
+epochs for each number of epochs from 1 to `nfits`.
 
+If given the total length of the genome `Ltot` it initialize the fit 
+options to default. See [`FitOptions`](@ref) for how to specify them.
 The mutation rate `mu` is assumed to be per base pairs per generation
-and the total length of the genome `Ltot` is in base pairs. The fit
-approximate the histogram with more and more epochs up to `nepochs`, so
-the result is a vector of `FitResult`, one for each number of epochs.
-
-See also [`FitResult`](@ref).
-
-# Arguments
-- `Tlow::Int=10`: The lower bound for the duration of epochs.
-- `Nlow::Int=10`, `Nupp::Int=100000`: The lower and upper bounds for the population sizes.
-- `smallest_segment::Int=30`: The smallest segment size to consider for the optimization,
-same as in [`demoinfer`](@ref).
+and the total length of the genome `Ltot` is in base pairs. Return a 
+vector of `FitResult`, one for each number of epochs,
+see also [`FitResult`](@ref).
 """
 function pre_fit(h::Histogram{T,1,E}, nfits::Int, mu::Float64, fop::FitOptions;
     require_convergence::Bool = true
@@ -165,7 +164,7 @@ function pre_fit(h::Histogram{T,1,E}, nfits::Int, mu::Float64, fop::FitOptions;
             end
             filter!(t->t!=0, ts)
             unique!(ts)
-            maxnts_ = min(maxnts, length(ts))
+            maxnts_ = min(fop.maxnts, length(ts))
             ts = ts[range(start=1, stop=length(ts), step=length(ts)÷maxnts_)]
             fs = Vector{FitResult}(undef, length(ts))
             # fops = Vector{FitOptions}(undef, length(ts))

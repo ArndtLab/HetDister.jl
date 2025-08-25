@@ -60,11 +60,7 @@ function fit_model_epochs(
     # run the optimization
     model = model_epochs(edges, counts, mu, options.prior)
 
-    mle = maximum_likelihood(model, options.solver; 
-        initial_params=PInit(options),
-        lb=options.low, ub=options.upp,
-        options.opt...
-    )
+    mle = Optim.optimize(model, MLE(), options.init, options.solver, options.opt)
 
     para = vec(mle.values)
     para_name = DemoInfer.correct_name.(string.(names(mle.values, 1)))
@@ -114,8 +110,8 @@ function fit_model_epochs(
         stderrors,
         para_name,
         para,
-        summary(mle.optim_result.alg),
-        successful_retcode(mle.optim_result.retcode),
+        summary(mle.optim_result),
+        Optim.converged(mle.optim_result),
         lp,
         evidence,
         (; 

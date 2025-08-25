@@ -96,13 +96,12 @@ mutable struct Deltas
     state::Integer
 end
 
-function nextdelta!(d::Deltas)
+function next!(d::Deltas)
     # assumes to be called from iteration over factors
     d.state += 1
     if d.state > length(d.factors)
         d.state = 1
     end
-    return d.factors[d.state]
 end
 
 struct LBound <: AbstractVector{Float64}
@@ -172,6 +171,16 @@ mutable struct FitOptions
     maxnts::Int
 end
 
+function Base.show(io::IO, fop::FitOptions)
+    println(io, "FitOptions with:")
+    println(io, "total genome length: ", fop.Ltot)
+    println(io, "N lower bound: ", fop.low.Nlow)
+    println(io, "N upper bound: ", fop.upp.Nupp)
+    println(io, "T lower bound: ", fop.low.Tlow)
+    println(io, "T upper bound: ", fop.upp.Tupp)
+    println(io, "solver: ", summary(fop.solver))
+end
+
 npar(fop::FitOptions) = 2fop.nepochs
 
 """
@@ -184,8 +193,13 @@ Construct an an object of type FitOptions, requiring total genome length `Ltot` 
 - `Nlow::Number=10`, `Nupp::Number=1e8`: The lower and upper bounds for the population sizes.
 - `level::Float64=0.95`: The confidence level for the confidence intervals on the parameters estimates.
 - `solver`: The solver to use for the optimization, default is `LBFGS()`.
-- `opt`: The optimization options, a named tuple which is passed to SciML solve. 
-Default is `(;maxiters = 6000, allow_f_increases=true, time_limit = 60, reltol = 5e-8)`.
+- `opt`: The optimization options, a named tuple which is passed to 
+[Optim.jl](https://github.com/JuliaNLSolvers/Optim.jl). Default is has keywords:
+    - `iterations = 6000`
+    - `allow_f_increases = true`
+    - `time_limit = 60`
+    - `g_tol = 5e-8`
+    - `show_warnings = false`.
 - `smallest_segment::Int=1`: The smallest segment size present in the histogram to consider 
 for the signal search.
 - `force::Bool=false`: if true try to fit further epochs even when no signal is found.
@@ -196,7 +210,13 @@ function FitOptions(Ltot::Number;
     Nlow = 10, Nupp = 1e8,
     level = 0.95,
     solver = LBFGS(),
-    opt = (;maxiters = 6000, allow_f_increases=true, time_limit = 60, reltol = 5e-8),
+    opt = (;
+        iterations = 6000, 
+        allow_f_increases=true, 
+        time_limit = 60, 
+        g_tol = 5e-8,
+        show_warnings = false
+    ),
     nepochs::Int = 1,
     smallest_segment::Int = 1,
     force::Bool = false,
@@ -219,7 +239,7 @@ function FitOptions(Ltot::Number;
         perturb,
         delta,
         solver,
-        opt,
+        Optim.Options(;opt...),
         low,
         upp,
         prior,
@@ -241,7 +261,7 @@ function setinit!(fop::FitOptions, weights::Vector{<:Integer}, mu::Float64)
     return nothing
 end
 
-function setinit!(fop::FitOptions, init::Vector{Float64})
+function setinit!(fop::FitOptions, init::AbstractVector{Float64})
     @assert length(init) == npar(fop)
     fop.init .= init
     for i in eachindex(fop.init)
@@ -268,20 +288,26 @@ function set_perturb!(fop::FitOptions, fit::FitResult)
     end
 end
 
+function reset_perturb!(fop::FitOptions)
+    fop.perturb .= falses(npar(fop))
+    fop.delta.state = 0
+end
+
 struct PInit <: AbstractVector{Float64}
     fop::FitOptions
 end
 
 Base.size(p::PInit) = (npar(p.fop),)
 
+getdelta(fop::FitOptions) = fop.delta.factors[fop.delta.state]
+
 function Base.getindex(p::PInit, i::Int)
     if !p.fop.perturb[i]
         return p.fop.init[i]
     else
-        dl = nextdelta!(p.fop.delta)
+        dl = getdelta(p.fop)
         low = p.fop.low[i]
         upp = p.fop.upp[i]
-        p.fop.perturb .= falses(npar(p.fop))
         if dl < 1
             return rand(
                 truncated(

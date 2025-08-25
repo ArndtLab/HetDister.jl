@@ -4,18 +4,13 @@ using StatsBase, Distributions, HistogramBinnings
 using PopSimIBX
 using LinearAlgebra, Statistics
 using Turing, Optim
-using SciMLBase: successful_retcode
 using StatsAPI
 using Printf
 using Logging
-import DynamicPPL, ForwardDiff, Accessors
+using DynamicPPL, ForwardDiff, Accessors
 using MLDs
 using Random
 using Base.Threads
-
-using Logging
-logger = ConsoleLogger(stdout, Logging.Error)
-Base.global_logger(logger)
 
 include("utils.jl")
 include("mle_optimization.jl")
