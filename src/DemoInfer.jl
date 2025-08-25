@@ -6,17 +6,13 @@ using LinearAlgebra, Statistics
 using Turing, Optim
 using StatsAPI
 using Printf
-using Logging
-import DynamicPPL, ForwardDiff, Accessors
+using DynamicPPL, ForwardDiff, Accessors
 using MLDs
 using Random
 using Base.Threads
-
 using Logging
-logger = ConsoleLogger(stdout, Logging.Error)
-Base.global_logger(logger)
 
-include("fitresult.jl")
+include("utils.jl")
 include("mle_optimization.jl")
 include("sequential_fit.jl")
 include("simulate.jl")
@@ -27,11 +23,11 @@ export get_sim!,
     get_para, evd, sds, pop_sizes, durations, get_chain,
     compute_residuals,
     adapt_histogram,
-    FitResult,
+    FitResult, FitOptions,
     Flat, Lin, Sq
 
 
-function integral_ws(edges::Vector{T}, mu::Float64, TN::Vector) where {T <: Number}
+function integral_ws(edges::AbstractVector{<:Real}, mu::Float64, TN::Vector)
     a = 0.5
     last_hid_I = hid_integral(TN, mu, edges[1] - a)
     weights = Vector{Float64}(undef, length(edges)-1)
@@ -49,14 +45,8 @@ end
 Compute the residuals between the observed and expected weights.
 """
 function compute_residuals(h::Histogram, mu::Float64, TN::Vector)
-    w_th = integral_ws(h.edges[1].edges, mu, TN)
-    # w_ = zeros(length(h.weights))
-    # w_ .= h.weights
-    # when the observation is zero, we infer the rate of the Poisson process from the
-    # neighbouring bins epxloiting the relation between them given by the model
-    # w_[h.weights .== 0] .= w_th[h.weights .== 0]
-    # residuals = (h.weights - w_th) ./ sqrt.(w_)
-    residuals = (h.weights - w_th) ./ sqrt.(w_th) # probably better to use the "population" variance
+    w_th = integral_ws(h.edges[1], mu, TN)
+    residuals = (h.weights - w_th) ./ sqrt.(w_th)
     @assert all(isfinite.(residuals))
     return residuals
 end
@@ -133,7 +123,7 @@ average heterozygosity and return four vectors containing respectively
 common midpoints for bins, the two rescaled weights and variances of
 the difference between weights.
 """
-function compare_mlds(segs1::Vector{Int}, segs2::Vector{Int}; lo = 1, hi = 1_000_000, nbins = 200)
+function compare_mlds(segs1::AbstractVector{<:Integer}, segs2::AbstractVector{<:Integer}; lo = 1, hi = 1_000_000, nbins = 200)
     # 1 is the target lattice, i.e. with biggest theta
     segs1_ = copy(segs1)
     segs2_ = copy(segs2)

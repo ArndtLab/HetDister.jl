@@ -21,36 +21,97 @@ function (a::Sq)(L, it)
 end
 
 """
-    demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64}; kwargs...)
+    demoinfer(segments::AbstractVector{<:Integer}, epochrange::UnitRange{Int}, mu::Float64, rho::Float64; kwargs...)
 
-Fit iteratively histogram `h_obs` with a demographic history of piece-wise constant `nepochs`
-starting from an initial parameter vector `init`.
+Make an histogram with IBS `segments` and infer demographic histories with
+piece-wise constant epochs where the number of epochs is in `epochrange`.
 
-Return a vector of `FitResult`, see [`FitResult`](@ref), `mu` and `rho` are
-respectively the mutation and recombination rates, per base pair per generation,
-and `Ltot` is the total length of the sequence, in base pairs.
+Return a vector of `FitResult` of length smaller or equal to `epochrange`, 
+see [`FitResult`](@ref), `mu` and `rho` are respectively the mutation 
+and recombination rates per base pair per generation.
 
 # Optional Arguments
+- `fop::FitOptions = FitOptions(sum(segments))`: the fit options, see [`FitOptions`](@ref).
+- `lo::Int=1`: The lowest segment length to be considered in the histogram
+- `hi::Int=50_000_000`: The highest segment length to be considered in the histogram
+- `nbins::Int=200`: The number of bins to use in the histogram
 - `iters::Int=8`: The number of iterations to perform. Currently automatic check for convergence
 is not implemented.
-- `level::Float64=0.95`: The confidence level for the confidence intervals on the parameters estimates.
-- `Tlow::Number=10`, `Tupp::Number=1e7`: The lower and upper bounds for the duration of epochs.
-- `Nlow::Number=10`, `Nupp::Number=1e8`: The lower and upper bounds for the population sizes.
-- `annealing=Sq()`: correction is computed by simulating a genome of length `factor` times the length of
-the input genome. At each iteration the factor is changed according to the annealing function. It can
-be `Flat()`, `Lin()` or `Sq()`. It can be a user defined function with signature `(L, it) -> factor`
-with `L` the genome length and `it` the iteration index.
+- `annealing=nothing`: correction is computed by simulating a genome of length `factor` times 
+the length of the input genome. At each iteration the factor is changed according to the 
+annealing function. It can be `Flat()`, `Lin()` or `Sq()`. It can be a user defined 
+function with signature `(L, it) -> factor` with `L` the genome length and `it` the
+iteration index. By default it is computed adaptively based on the input data, such 
+that the total expected volume of the histogram is 2e8.
 - `s::Int=1234`: The random seed for the random number generator, used to compute the correction.
-- `restart::Int=100`: The number of iterations after which the fit is restarted with a different seed. Set
-to a default high number, it should not be needed.
+- `restart::Int=100`: The number of iterations after which the fit is restarted with
+a different seed. Set to a default high number, it should not be needed.
 - `top::Int=1`: the number of fits at chain tail which is averaged for the final estimate.
 """
-function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64}; 
-    iters::Int = 8,
-    level::Float64 = 0.95,
-    Tlow::Number = 10, Tupp::Number = 1e7,
-    Nlow::Number = 10, Nupp::Number = 1e8,
+function demoinfer(segments::AbstractVector{<:Integer}, epochrange::UnitRange{Int}, mu::Float64, rho::Float64;
+    fop::FitOptions = FitOptions(sum(segments)),
+    lo::Int = 1, hi::Int = 50_000_000, nbins::Int = 200,
+    kwargs...
+)
+    h = adapt_histogram(segments; lo, hi, nbins)
+    return demoinfer(h, epochrange, mu, rho, fop.Ltot; 
+        fop = fop, kwargs...
+    )
+end
+
+"""
+    demoinfer(h, epochrange, mu, rho, Ltot; kwargs...)
+
+Does the same as above, but takes a histogram as input and the total
+length of the IBS segments.
+
+It is much lighter to distribute the histogram than the vector of segments
+which may also be streamed directly from disk into the histogram.
+"""
+function demoinfer(h::Histogram{T,1,E}, epochrange::UnitRange{Int}, mu::Float64, rho::Float64, Ltot::Number;
+    fop::FitOptions = FitOptions(Ltot),
+    annealing = nothing,
+    kwargs...
+) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
+    f = pre_fit(h, last(epochrange), mu, fop; require_convergence = false)
+    nepochs = length(f)
+    if nepochs < last(epochrange)
+        @warn "for models above $nepochs no signal was found, stopping at $nepochs"
+    end
+    epochrange = first(epochrange):nepochs
+
+    if isnothing(annealing)
+        target = 2e8
+        thetaL = sum(h.weights)
+        factor = target / thetaL
+        factor = max(1, factor)
+        annealing = (L, it) -> factor
+    end
+
+    results = Vector{FitResult}(undef, length(epochrange))
+    fops = fill(fop, length(epochrange))
+    @threads for n in eachindex(epochrange)
+        results[n] = demoinfer(h, epochrange[n], mu, rho, Ltot, get_para(f[epochrange[n]]);
+            fop = fops[n], annealing, kwargs...
+        )
+    end
+
+    return results
+end
+
+"""
+    demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64}; kwargs...)
+
+Fit iteratively histogram `h_obs` with a single demographic model 
+of piece-wise constant `nepochs` starting from an initial parameter vector `init`.
+
+Return a `FitResult`, see [`FitResult`](@ref), above methods fall back to this,
+which is called on multiple threads if available.
+"""
+function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64};
+    fop::FitOptions = FitOptions(Ltot),
     annealing = Sq(),
+    iters::Int = 8,
     s::Int = 1234,
     restart::Int = 100,
     top::Int = 1
@@ -58,11 +119,15 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
     Random.seed!(s)
 
     length(init)÷2 == nepochs || @error "init must be in TN format, with 2*nepochs elements"
+    setnepochs!(fop, nepochs)
 
-    h_sim = HistogramBinnings.Histogram(h_obs.edges)
-    ho_mod = HistogramBinnings.Histogram(h_obs.edges)
+    h_sim = Histogram(h_obs.edges)
+    ho_mod = Histogram(h_obs.edges)
 
-    fop = FitOptions(Ltot; nepochs, init, Tlow, Tupp, Nlow, Nupp)
+    if fop.Ltot != Ltot
+        @warn "inconsistent Ltot and FitOptions, taking Ltot"
+        fop.Ltot = Ltot
+    end
 
     chain = FitResult[]
     corrections = []
@@ -73,7 +138,7 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
             Random.seed!(s + iter)
             init_ = copy(init)
         end
-        weights_th = integral_ws(h_obs.edges[1].edges, mu, init_)
+        weights_th = integral_ws(h_obs.edges[1], mu, init_)
         factor = annealing(Ltot, (iter-1) % restart + 1)
         get_sim!(init_, h_sim, mu, rho; factor)
     
@@ -92,7 +157,6 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
         init_ = f.para
         push!(chain, f)
         push!(corrections, diff)
-        @show iter
     end
 
     estimate = zeros(length(chain[1].para))
@@ -168,125 +232,6 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
     return final_fit
 end
 
-"""
-    demoinfer(segments::AbstractVector{<:Integer}, nepochs::Int, mu::Float64, rho::Float64; kwargs...)
-
-Make an histogram with IBS `segments` and fit it iteratively with a demographic
-history of piece-wise constant `nepochs`.
-
-Return a vector of `FitResult`, see [`FitResult`](@ref), `mu` and `rho` are
-respectively the mutation and recombination rates per base pair per generation.
-
-# Optional Arguments
-- `lo::Int=1`: The lowest segment length to be considered in the histogram
-- `hi::Int=50_000_000`: The highest segment length to be considered in the histogram
-- `nbins::Int=200`: The number of bins to use in the histogram
-- `iters::Int=8`: The number of iterations to perform. Currently automatic check for convergence
-is not implemented.
-- `level::Float64=0.95`: The confidence level for the confidence intervals on the parameters estimates.
-- `Tlow::Number=10`, `Tupp::Number=1e7`: The lower and upper bounds for the duration of epochs.
-- `Nlow::Number=10`, `Nupp::Number=1e8`: The lower and upper bounds for the population sizes.
-- `smallest_segment::Int=1`: The smallest segment size present in the histogram to consider 
-for the optimization.
-- `annealing=nothing`: correction is computed by simulating a genome of length `factor` times 
-the length of the input genome. At each iteration the factor is changed according to the 
-annealing function. It can be `Flat()`, `Lin()` or `Sq()`. It can be a user defined 
-function with signature `(L, it) -> factor` with `L` the genome length and `it` the
-iteration index. By default it is computed adaptively based on the input data, such 
-that the total expected volume of the histogram is 2e8.
-- `force::Bool=false`: if `true`, the fit will try to add epochs even when no signal is found.
-- `s::Int=1234`: The random seed for the random number generator, used to compute the correction.
-- `restart::Int=100`: The number of iterations after which the fit is restarted with
-a different seed. Set to a default high number, it should not be needed.
-- `top::Int=1`: the number of fits at chain tail which is averaged for the final estimate.
-"""
-function demoinfer(segments::AbstractVector{<:Integer}, nepochs::Int, mu::Float64, rho::Float64;
-    lo::Int = 1, hi::Int = 50_000_000, nbins::Int = 200,
-    iters::Int = 8,
-    level::Float64 = 0.95,
-    Tlow::Number = 10, Tupp::Number = 1e7,
-    Nlow::Number = 10, Nupp::Number = 1e8,
-    smallest_segment::Int = 1,
-    annealing = nothing,
-    force::Bool = false,
-    s::Int = 1234,
-    restart::Int = 100,
-    top::Int = 1
-)
-    h_obs = adapt_histogram(segments; lo, hi, nbins)
-    Ltot = sum(segments)
-
-    f = pre_fit(h_obs, nepochs, mu, Ltot; 
-        Tlow, Tupp, Nlow, Nupp, smallest_segment,
-        force, require_convergence = false
-    )
-    nepochs_ = findlast(i->isassigned(f, i), eachindex(f))
-    if nepochs_ < nepochs
-        @warn "for models above $nepochs no signal was found, stopping at $nepochs_"
-    end
-
-    if isnothing(annealing)
-        target = 2e8
-        thetaL = length(segments)
-        factor = target / thetaL
-        annealing = (L, it) -> factor
-    end
-
-    results = Vector{FitResult}(undef, nepochs_)
-    @threads for n in 1:nepochs_
-        results[n] = demoinfer(h_obs, n, mu, rho, Ltot, get_para(f[n]); 
-            iters, level, Tlow, Tupp, Nlow, Nupp,
-            annealing, s, restart, top
-        )
-    end
-
-    return results
-end
-
-"""
-Same with an histogram and total length of the segments as input.
-
-It is much lighter to distribute the histogram than the vector of segments
-which may also be streamed directly from disk into the histogram.
-"""
-function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number;
-    iters::Int = 8,
-    level::Float64 = 0.95,
-    Tlow::Number = 10, Tupp::Number = 1e7,
-    Nlow::Number = 10, Nupp::Number = 1e8,
-    smallest_segment::Int = 1,
-    annealing = nothing,
-    force::Bool = false,
-    s::Int = 1234,
-    restart::Int = 100,
-    top::Int = 1
-)
-    f = pre_fit(h_obs, nepochs, mu, Ltot; 
-        Tlow, Tupp, Nlow, Nupp, smallest_segment,
-        force, require_convergence = false
-    )
-    nepochs_ = findlast(i->isassigned(f, i), eachindex(f))
-    if nepochs_ < nepochs
-        @warn "for models above $nepochs no signal was found, stopping at $nepochs_"
-    end
-
-    if isnothing(annealing)
-        target = 2e8
-        thetaL = sum(h_obs.weights)
-        factor = target / thetaL
-        annealing = (L, it) -> factor
-    end
-
-    results = Vector{FitResult}(undef, nepochs_)
-    @threads for n in 1:nepochs_
-        results[n] = demoinfer(h_obs, n, mu, rho, Ltot, get_para(f[n]); 
-            iters, level, Tlow, Tupp, Nlow, Nupp,
-            annealing, s, restart, top
-        )
-    end
-
-    return results
-end
 
 """
     compare_models(models::Vector{FitResult})

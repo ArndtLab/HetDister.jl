@@ -1,4 +1,4 @@
-function tcondr(r::Number, para::Vector{T}, mu::Number) where T<:Number
+function tcondr(r::Number, mu::Number)
     return [1 / (mu * r), 1 / (mu * (25r)^(1/1.3))]
 end
 
@@ -31,7 +31,7 @@ function deviant(h::Histogram, mu::Float64, prev_para::Vector{T};
     found = zeros(1)
     for j in eachindex(divide[1:end-1])
         if divide[j] != divide[j+1]
-            t = tcondr(r[j], prev_para, mu)
+            t = tcondr(r[j], mu)
             @debug "identified deviation " r[j]
             append!(found, t)
         end
@@ -105,22 +105,19 @@ function perturb_fit!(f::FitResult, h::Histogram, mu::Float64, fop::FitOptions;
     by_pass::Bool = false
 )
     if isinf(evd(f)) || any(f.opt.at_lboundary) || any(f.opt.at_uboundary[2:end]) || !f.converged
-        factors = mapreduce( i->fill(i, 10), vcat, [0.001, 0.01, 0.1, 0.5, 0.5, 0.9, 2] )
-        for fct in factors
-            perturbations = Perturbation[]
-            for i in eachindex(f.para)
-                if f.opt.at_lboundary[i] || (f.opt.at_uboundary[i] && i > 1)
-                    push!(perturbations, Perturbation(fct, i))
-                end
-            end
+        pinit = PInit(fop)
+        for fct in fop.delta.factors
+            next!(fop.delta)
             setinit!(fop, f.para)
-            fop.perturbations = perturbations
+            set_perturb!(fop, f)
+            setinit!(fop, pinit)
             f = fit_model_epochs(h, mu, fop)
-            fop.perturbations = Perturbation[]
             if (evd(f) != Inf)
                 if by_pass
+                    reset_perturb!(fop)
                     break
                 elseif !any(f.opt.at_lboundary[1:end-2])
+                    reset_perturb!(fop)
                     break
                 end
             end
@@ -130,65 +127,57 @@ function perturb_fit!(f::FitResult, h::Histogram, mu::Float64, fop::FitOptions;
 end
 
 """
-    pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number; kwargs...)
+    pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number; require_convergence=true)
+    pre_fit(h::Histogram, nfits::Int, mu::Float64, fop::FitOptions; require_convergence=true)
 
-Preliminarily fit `h` with an approximate model of piece-wise constant `nepochs`.
+Preliminarily fit `h` with an approximate model of piece-wise constant 
+epochs for each number of epochs from 1 to `nfits`.
 
+If given the total length of the genome `Ltot` it initialize the fit 
+options to default. See [`FitOptions`](@ref) for how to specify them.
 The mutation rate `mu` is assumed to be per base pairs per generation
-and the total length of the genome `Ltot` is in base pairs. The fit
-approximate the histogram with more and more epochs up to `nepochs`, so
-the result is a vector of `FitResult`, one for each number of epochs.
-
-See also [`FitResult`](@ref).
-
-# Arguments
-- `Tlow::Int=10`: The lower bound for the duration of epochs.
-- `Nlow::Int=10`, `Nupp::Int=100000`: The lower and upper bounds for the population sizes.
-- `smallest_segment::Int=30`: The smallest segment size to consider for the optimization,
-same as in [`demoinfer`](@ref).
+and the total length of the genome `Ltot` is in base pairs. Return a 
+vector of `FitResult`, one for each number of epochs,
+see also [`FitResult`](@ref).
 """
-function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
-    Tlow::Number=10, Tupp::Number=1e7, Nlow::Number=10, Nupp::Number=1e8,
-    smallest_segment::Int = 1,
-    require_convergence::Bool = true,
-    force::Bool = false,
-    maxnts::Int = 10
-)
-    fits = Vector{FitResult}(undef, nfits)
-    N0 = sum(h.weights) / Ltot / 4mu
+function pre_fit(h::Histogram{T,1,E}, nfits::Int, mu::Float64, fop::FitOptions;
+    require_convergence::Bool = true
+) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
+    fits = FitResult[]
+    N0 = sum(h.weights) / fop.Ltot / 4mu
+    @assert nfits > 0 "number of fits has to be strictly positive"
     for i in 1:nfits
-        fop = FitOptions(Ltot; nepochs = i, Tlow, Tupp, Nlow, Nupp)
+        setnepochs!(fop, i)
         if i == 1
             f = fit_model_epochs(h, mu, fop)
         else
-            ts = timesplitter(h, mu, fits[i-1].para; smallest_segment)
+            ts = timesplitter(h, mu, fits[i-1].para; fop.smallest_segment)
             if iszero(ts)
                 @info "pre_fit: no split found, epoch $i"
-                if !force
+                if !fop.force
                     return fits
                 else
                     r = midpoints(h.edges[1])
-                    append!(ts, tcondr(rand(r), fits[i-1].para, mu))
-                    append!(ts, tcondr(rand(r), fits[i-1].para, mu))
+                    append!(ts, tcondr(rand(r), mu))
+                    append!(ts, tcondr(rand(r), mu))
                 end
             end
             filter!(t->t!=0, ts)
-            ts[ts .> Tupp] .= Tupp
             unique!(ts)
-            maxnts_ = min(maxnts, length(ts))
+            maxnts_ = min(fop.maxnts, length(ts))
             ts = ts[range(start=1, stop=length(ts), step=length(ts)÷maxnts_)]
             fs = Vector{FitResult}(undef, length(ts))
-            fops = Vector{FitOptions}(undef, length(ts))
-            for j in eachindex(fops)
-                fops[j] = fop
-            end
-            @threads for j in eachindex(ts)
+            # fops = Vector{FitOptions}(undef, length(ts))
+            # for j in eachindex(fops)
+            #     fops[j] = fop
+            # end
+            for j in eachindex(ts)
                 init = get_para(fits[i-1])
-                epochfinder!(init, N0, ts[j], fops[j])
-                setinit!(fops[j], init)
-                f = fit_model_epochs(h, mu, fops[j])
+                epochfinder!(init, N0, ts[j], fop)
+                setinit!(fop, init)
+                f = fit_model_epochs(h, mu, fop)
                 if !f.converged
-                    f = perturb_fit!(f, h, mu, fops[j])
+                    f = perturb_fit!(f, h, mu, fop)
                 end
                 fs[j] = f
             end
@@ -212,7 +201,7 @@ function pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number;
             @error "NaN parameters" f.para
         end
 
-        fits[i] = f
+        push!(fits, f)
     end
     return fits
 end
