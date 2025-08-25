@@ -60,7 +60,10 @@ function fit_model_epochs(
     # run the optimization
     model = model_epochs(edges, counts, mu, options.prior)
 
-    mle = Optim.optimize(model, MLE(), options.init, options.solver, options.opt)
+    logger = ConsoleLogger(stdout, Logging.Error)
+    mle = with_logger(logger) do
+        Optim.optimize(model, MLE(), options.init, options.solver, options.opt)
+    end
 
     para = vec(mle.values)
     para_name = DemoInfer.correct_name.(string.(names(mle.values, 1)))

@@ -10,6 +10,7 @@ using DynamicPPL, ForwardDiff, Accessors
 using MLDs
 using Random
 using Base.Threads
+using Logging
 
 include("utils.jl")
 include("mle_optimization.jl")

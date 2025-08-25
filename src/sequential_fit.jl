@@ -154,7 +154,7 @@ function pre_fit(h::Histogram{T,1,E}, nfits::Int, mu::Float64, fop::FitOptions;
             ts = timesplitter(h, mu, fits[i-1].para; fop.smallest_segment)
             if iszero(ts)
                 @info "pre_fit: no split found, epoch $i"
-                if !force
+                if !fop.force
                     return fits
                 else
                     r = midpoints(h.edges[1])
