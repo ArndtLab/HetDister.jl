@@ -9,11 +9,6 @@ using StatsBase, StatsAPI
 using Test
 using MLDs
 
-using DemoInfer.Logging
-disable_logging(Logging.Warn)
-logger = ConsoleLogger(stderr, Logging.Error)
-global_logger(logger)
-
 include("Aqua.jl")
 
 TNs = [

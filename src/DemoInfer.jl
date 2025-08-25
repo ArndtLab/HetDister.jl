@@ -6,7 +6,6 @@ using LinearAlgebra, Statistics
 using Turing, Optim
 using StatsAPI
 using Printf
-using Logging
 using DynamicPPL, ForwardDiff, Accessors
 using MLDs
 using Random
