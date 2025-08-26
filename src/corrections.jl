@@ -54,6 +54,10 @@ function demoinfer(segments::AbstractVector{<:Integer}, epochrange::UnitRange{In
     kwargs...
 )
     h = adapt_histogram(segments; lo, hi, nbins)
+    if sum(segments) != fop.Ltot
+        @warn "inconsistent Ltot and segments, taking sum(segments)"
+        fop.Ltot = sum(segments)
+    end
     return demoinfer(h, epochrange, mu, rho, fop.Ltot; 
         fop = fop, kwargs...
     )
@@ -73,6 +77,12 @@ function demoinfer(h::Histogram{T,1,E}, epochrange::UnitRange{Int}, mu::Float64,
     annealing = nothing,
     kwargs...
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
+    @assert !isempty(h.weights) "histogram is empty"
+    @assert first(epochrange) > 0 "epochrange has to be strictly positive"
+    if Ltot != fop.Ltot
+        @warn "inconsistent Ltot and fit options, taking Ltot"
+        fop.Ltot = Ltot
+    end
     f = pre_fit(h, last(epochrange), mu, fop; require_convergence = false)
     nepochs = length(f)
     if nepochs < last(epochrange)
@@ -89,9 +99,13 @@ function demoinfer(h::Histogram{T,1,E}, epochrange::UnitRange{Int}, mu::Float64,
     end
 
     results = Vector{FitResult}(undef, length(epochrange))
-    fops = fill(fop, length(epochrange))
+    fops = Vector{FitOptions}(undef, length(epochrange))
+    for i in eachindex(fops)
+        fops[i] = deepcopy(fop)
+    end
     @threads for n in eachindex(epochrange)
-        results[n] = demoinfer(h, epochrange[n], mu, rho, Ltot, get_para(f[epochrange[n]]);
+        epochs = epochrange[n]
+        results[n] = demoinfer(h, epochs, mu, rho, Ltot, get_para(f[epochs]);
             fop = fops[n], annealing, kwargs...
         )
     end

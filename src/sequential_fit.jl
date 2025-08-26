@@ -104,7 +104,8 @@ end
 function perturb_fit!(f::FitResult, h::Histogram, mu::Float64, fop::FitOptions;
     by_pass::Bool = false
 )
-    if isinf(evd(f)) || any(f.opt.at_lboundary) || any(f.opt.at_uboundary[2:end]) || !f.converged
+    set_perturb!(fop, f)
+    if any(fop.perturb)
         pinit = PInit(fop)
         for fct in fop.delta.factors
             next!(fop.delta)
@@ -167,18 +168,18 @@ function pre_fit(h::Histogram{T,1,E}, nfits::Int, mu::Float64, fop::FitOptions;
             maxnts_ = min(fop.maxnts, length(ts))
             ts = ts[range(start=1, stop=length(ts), step=length(ts)÷maxnts_)]
             fs = Vector{FitResult}(undef, length(ts))
-            # fops = Vector{FitOptions}(undef, length(ts))
-            # for j in eachindex(fops)
-            #     fops[j] = fop
-            # end
-            for j in eachindex(ts)
+            fops = Vector{FitOptions}(undef, length(ts))
+            for j in eachindex(fops)
+                fops[j] = deepcopy(fop)
+            end
+            @threads for j in eachindex(ts)
                 init = get_para(fits[i-1])
-                epochfinder!(init, N0, ts[j], fop)
-                setinit!(fop, init)
-                f = fit_model_epochs(h, mu, fop)
-                if !f.converged
-                    f = perturb_fit!(f, h, mu, fop)
-                end
+                epochfinder!(init, N0, ts[j], fops[j])
+                setinit!(fops[j], init)
+                f = fit_model_epochs(h, mu, fops[j])
+                # if !f.converged
+                #     f = perturb_fit!(f, h, mu, fops[j])
+                # end
                 fs[j] = f
             end
             conv = filter(f->f.converged, fs)
