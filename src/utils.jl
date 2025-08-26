@@ -202,7 +202,7 @@ Construct an an object of type FitOptions, requiring total genome length `Ltot` 
     - `show_warnings = false`.
 - `smallest_segment::Int=1`: The smallest segment size present in the histogram to consider 
 for the signal search.
-- `force::Bool=false`: if true try to fit further epochs even when no signal is found.
+- `force::Bool=true`: if true try to fit further epochs even when no signal is found.
 - `maxnts::Int=10`: The maximum number of new time splits to consider when adding a new epoch.
 """
 function FitOptions(Ltot::Number;
@@ -219,7 +219,7 @@ function FitOptions(Ltot::Number;
     ),
     nepochs::Int = 1,
     smallest_segment::Int = 1,
-    force::Bool = false,
+    force::Bool = true,
     maxnts::Int = 10
 )
     N = 2nepochs
@@ -284,7 +284,10 @@ end
 function set_perturb!(fop::FitOptions, fit::FitResult)
     @assert npar(fop) == npar(fit)
     for i in eachindex(fop.perturb)
-        fop.perturb[i] = fit.opt.at_lboundary[i] || (fit.opt.at_uboundary[i] && i > 1)
+        fop.perturb[i] = fit.opt.at_lboundary[i] || 
+            (fit.opt.at_uboundary[i] && i > 1) ||
+            isinf(evd(fit)) ||
+            !fit.converged
     end
 end
 
