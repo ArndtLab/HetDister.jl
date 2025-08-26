@@ -113,7 +113,7 @@ function perturb_fit!(f::FitResult, h::Histogram, mu::Float64, fop::FitOptions;
             set_perturb!(fop, f)
             setinit!(fop, pinit)
             f = fit_model_epochs(h, mu, fop)
-            if (evd(f) != Inf)
+            if !isinf(evd(f))
                 if by_pass
                     reset_perturb!(fop)
                     break

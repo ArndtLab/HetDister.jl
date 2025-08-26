@@ -140,7 +140,7 @@ end
         h = adapt_histogram(ibs_segments)
         @test all(h.weights .> 0)
         Ltot = sum(ibs_segments)
-        fits = pre_fit(h, 8, mu, FitOptions(Ltot); require_convergence = false)
+        fits = pre_fit(h, 8, mu, Ltot; require_convergence = false)
         nepochs = length(fits)
         bestll = argmax(i->fits[i].lp, 1:nepochs)
         residuals = compute_residuals(h, mu, get_para(fits[bestll]))
@@ -148,7 +148,8 @@ end
         @test abs(std(residuals) - 1) < 3/sqrt(length(residuals))
     end
 
-    @testset "fit $(length(TN)÷2) epochs,  mu $mu, rho $rho" for (mu,rho,TN) in itr[7:7]
+    @testset "Iterative fit" begin
+        mu, rho, TN = mus[1], rhos[1], TNs[3]
         ibs_segments = get_sim(TN, mu, rho)
         h = adapt_histogram(ibs_segments)
         Ltot = sum(ibs_segments)
