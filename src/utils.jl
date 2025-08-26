@@ -284,7 +284,10 @@ end
 function set_perturb!(fop::FitOptions, fit::FitResult)
     @assert npar(fop) == npar(fit)
     for i in eachindex(fop.perturb)
-        fop.perturb[i] = fit.opt.at_lboundary[i] || (fit.opt.at_uboundary[i] && i > 1)
+        fop.perturb[i] = fit.opt.at_lboundary[i] || 
+            (fit.opt.at_uboundary[i] && i > 1) ||
+            isinf(evd(fit)) ||
+            !fit.converged
     end
 end
 
