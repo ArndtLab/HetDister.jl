@@ -141,6 +141,13 @@ and the total length of the genome `Ltot` is in base pairs. Return a
 vector of `FitResult`, one for each number of epochs,
 see also [`FitResult`](@ref).
 """
+function pre_fit(h::Histogram{T,1,E}, nfits::Int, mu::Float64, Ltot::Number; 
+    require_convergence::Bool = true
+) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
+    fop = FitOptions(Ltot)
+    return pre_fit(h, nfits, mu, fop; require_convergence)
+end
+
 function pre_fit(h::Histogram{T,1,E}, nfits::Int, mu::Float64, fop::FitOptions;
     require_convergence::Bool = true
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
