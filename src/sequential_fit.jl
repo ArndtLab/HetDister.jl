@@ -75,6 +75,8 @@ function timesplitter(h::Histogram, mu::Float64, prev_para::Vector{T};
 end
 
 function epochfinder!(init::Vector{T}, N0, t, fop::FitOptions) where {T <: Number}
+    # these are the absolute times separating epochs
+    # ordered from ancient to recent
     ts = reverse(pushfirst!(cumsum(init[end-1:-2:3]),0))
     split_epoch = findfirst(ts .< t)
     isnothing(split_epoch) && (split_epoch = 1)
@@ -104,6 +106,8 @@ end
 function perturb_fit!(f::FitResult, h::Histogram, mu::Float64, fop::FitOptions;
     by_pass::Bool = false
 )
+    f_ = deepcopy(f)
+    reset_perturb!(fop)
     set_perturb!(fop, f)
     if any(fop.perturb)
         pinit = PInit(fop)
@@ -115,14 +119,15 @@ function perturb_fit!(f::FitResult, h::Histogram, mu::Float64, fop::FitOptions;
             f = fit_model_epochs(h, mu, fop)
             if !isinf(evd(f))
                 if by_pass
-                    reset_perturb!(fop)
                     break
                 elseif !any(f.opt.at_lboundary[1:end-2])
-                    reset_perturb!(fop)
                     break
                 end
             end
         end
+    end
+    if f.lp < f_.lp
+        return f_
     end
     return f
 end
@@ -171,6 +176,7 @@ function pre_fit(h::Histogram{T,1,E}, nfits::Int, mu::Float64, fop::FitOptions;
                 end
             end
             filter!(t->t!=0, ts)
+            sort!(ts)
             unique!(ts)
             maxnts_ = min(fop.maxnts, length(ts))
             ts = ts[range(start=1, stop=length(ts), step=length(ts)÷maxnts_)]
@@ -189,14 +195,7 @@ function pre_fit(h::Histogram{T,1,E}, nfits::Int, mu::Float64, fop::FitOptions;
                 # end
                 fs[j] = f
             end
-            conv = filter(f->f.converged, fs)
-            if isempty(conv)
-                # all possible splits did not converge, 
-                # perturbing the best
-                conv = fs
-                @debug "pre_fit: no converged fits, epoch $i"
-            end
-            lps = map(f->f.lp, conv)
+            lps = map(f->f.lp, fs)
             f = fs[argmax(lps)]
             f = perturb_fit!(f, h, mu, fop)
             if require_convergence && !f.converged

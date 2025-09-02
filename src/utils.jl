@@ -211,16 +211,16 @@ function FitOptions(Ltot::Number;
     level = 0.95,
     solver = LBFGS(),
     opt = (;
-        iterations = 6000, 
-        allow_f_increases=true, 
-        time_limit = 60, 
+        iterations = 6000,
+        allow_f_increases=true,
+        time_limit = 60,
         g_tol = 5e-8,
         show_warnings = false
     ),
     nepochs::Int = 1,
     smallest_segment::Int = 1,
     force::Bool = true,
-    maxnts::Int = 10
+    maxnts::Int = 15
 )
     N = 2nepochs
     init = zeros(N)
@@ -276,8 +276,13 @@ function setnepochs!(fop::FitOptions, nepochs::Int)
     fop.nepochs = nepochs
     fop.init = zeros(N)
     fop.perturb = falses(N)
-    fop.low = LBound(fop.low.Ltot, fop.low.Nlow, fop.low.Tlow, N)
-    fop.upp = UBound(fop.low.Ltot, fop.upp.Nupp, fop.upp.Tupp, N)
+    L = fop.Ltot
+    Nlow = fop.low.Nlow
+    Nupp = fop.upp.Nupp
+    Tlow = fop.low.Tlow
+    Tupp = fop.upp.Tupp
+    fop.low = LBound(L, Nlow, Tlow, N)
+    fop.upp = UBound(L, Nupp, Tupp, N)
     fop.prior = Uniform.(fop.low, fop.upp)
 end
 

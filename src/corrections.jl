@@ -88,6 +88,11 @@ function demoinfer(h::Histogram{T,1,E}, epochrange::UnitRange{Int}, mu::Float64,
     if nepochs < last(epochrange)
         @warn "for models above $nepochs no signal was found, stopping at $nepochs"
     end
+    for i in f
+        if !i.converged
+            @warn "optimization with $(i.nepochs) did not converge"
+        end
+    end
     epochrange = first(epochrange):nepochs
 
     if isnothing(annealing)
@@ -257,20 +262,26 @@ TBD
 """
 function compare_models(models::Vector{FitResult})
     ms = copy(models)
-    ms = filter(m->isfinite(evd(m)) && m.converged, ms)
-    if length(ms) > 0
-        best = 1
-        lp = ms[1].lp
-        ev = evd(ms[1])
-        i = 2
-        while (i <= length(ms)) && (evd(ms[i]) > ev) && (ms[i].lp >= lp)
+    filter!(m->isfinite(evd(m)) && m.converged, ms)
+    if isempty(ms)
+        @warn "none of the models is meaningful"
+        return nothing
+    end
+    best = 1
+    lp = ms[1].lp
+    ev = evd(ms[1])
+    for i in eachindex(ms)
+        if evd(ms[i]) > ev && ms[i].lp >= lp
             best = i
             lp = ms[i].lp
             ev = evd(ms[i])
-            i += 1
+        elseif ms[i].lp < lp
+            @warn """
+                log-likelihood is not monotonic in the number of epochs.
+                This means that at least one likelihood optimization
+                has probably failed. You may want to change the fit options.
+            """
         end
-        return ms[best]
     end
-    @warn "none of the models is meaningful"
-    return nothing
+    return ms[best]
 end
