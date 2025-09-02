@@ -38,7 +38,12 @@ end
         m = this_hid_I - last_hid_I
         last_hid_I = this_hid_I
         if (m < 0) || isnan(m)
-            @error m, TN
+            # this happens when evaluating the model
+            # after optimization, in the unconstrained
+            # space, using Bijectors.
+            # I could not find a mwe, (TODO: find one)
+            # probably out of domain, apply a penalty
+            m = 0
         end
         @inbounds counts[i] ~ Poisson(m)
     end
