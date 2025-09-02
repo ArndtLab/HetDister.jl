@@ -180,9 +180,9 @@ function compare_mlds(segs1::AbstractVector{<:Integer}, segs2::AbstractVector{<:
     rs = midpoints(h1.edges[1]) * theta1
     sigmasq = h1.weights .+ tw * factor^2
     if swap
-        return rs, tw, h1.weights, sigmasq
+        return rs, tw * factor, h1.weights, sigmasq
     else
-        return rs, h1.weights, tw, sigmasq
+        return rs, h1.weights, tw * factor, sigmasq
     end
 end
 
