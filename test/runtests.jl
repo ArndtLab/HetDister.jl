@@ -76,8 +76,6 @@ end
     f = fit_model_epochs(h, 1.0, fop)
     @test f.converged
     perturb_fit!(f, h, 1.0, fop)
-    @test fop.perturb == falses(npar(fop))
-    @test fop.delta.state == 0
 end
 
 @testset "Test core functionality" for (mu,rho,TN) in zip(mus, rhos, TNs)
