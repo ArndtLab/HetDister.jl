@@ -117,7 +117,7 @@ function perturb_fit!(f::FitResult, h::Histogram, mu::Float64, fop::FitOptions;
             set_perturb!(fop, f)
             setinit!(fop, pinit)
             f = fit_model_epochs(h, mu, fop)
-            if !isinf(evd(f))
+            if !isinf(evd(f)) & f.converged
                 if by_pass
                     break
                 elseif !any(f.opt.at_lboundary[1:end-2])
@@ -190,9 +190,7 @@ function pre_fit(h::Histogram{T,1,E}, nfits::Int, mu::Float64, fop::FitOptions;
                 epochfinder!(init, N0, ts[j], fops[j])
                 setinit!(fops[j], init)
                 f = fit_model_epochs(h, mu, fops[j])
-                # if !f.converged
-                #     f = perturb_fit!(f, h, mu, fops[j])
-                # end
+                f = perturb_fit!(f, h, mu, fops[j]; by_pass=true)
                 fs[j] = f
             end
             lps = map(f->f.lp, fs)
