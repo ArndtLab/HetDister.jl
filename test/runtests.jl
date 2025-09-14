@@ -71,10 +71,10 @@ end
 @testset "Test fit" begin
     h = Histogram([1,2,3,4])
     append!(h, [1,1,1,2,3,1,2])
-    fop = DemoInfer.FitOptions(30)
+    fop = DemoInfer.FitOptions(7)
     f = fit_model_epochs(h.edges[1], h.weights, 1.0, fop)
     f = fit_model_epochs(h, 1.0, fop)
-    @test f.converged
+    @test DemoInfer.Optim.converged(f.opt.optim_result)
     perturb_fit!(f, h, 1.0, fop)
 end
 

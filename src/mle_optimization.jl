@@ -92,7 +92,7 @@ function fit_model_epochs(
         if any(lambdas .< 0)
             manual_flag = false
         end
-        lambdas[lambdas .< 0] .= eps()
+        lambdas[lambdas .<= 0] .= eps()
         vars_ = diag( eigen_problem.vectors *
             diagm(inv.(lambdas)) * eigen_problem.vectors'
         )
