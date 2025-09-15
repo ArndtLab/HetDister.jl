@@ -1,5 +1,5 @@
 using DemoInfer
-using DemoInfer: npar, setinit!, fit_model_epochs, PInit, 
+using DemoInfer: npar, setinit!, fit_model_epochs!, PInit, 
     setnepochs!, deviant, timesplitter, integral_ws, next!,
     reset_perturb!, perturb_fit!
 using PopSimIBX
@@ -71,11 +71,11 @@ end
 @testset "Test fit" begin
     h = Histogram([1,2,3,4])
     append!(h, [1,1,1,2,3,1,2])
-    fop = DemoInfer.FitOptions(30)
-    f = fit_model_epochs(h.edges[1], h.weights, 1.0, fop)
-    f = fit_model_epochs(h, 1.0, fop)
-    @test f.converged
-    perturb_fit!(f, h, 1.0, fop)
+    fop = DemoInfer.FitOptions(7)
+    f = fit_model_epochs!(fop, h.edges[1], h.weights, 1.0)
+    f = fit_model_epochs!(fop, h, 1.0)
+    @test DemoInfer.Optim.converged(f.opt.optim_result)
+    perturb_fit!(f, fop, h, 1.0)
 end
 
 @testset "Test core functionality" for (mu,rho,TN) in zip(mus, rhos, TNs)
@@ -83,7 +83,7 @@ end
     h = Histogram(LogEdgeVector(lo = 1, hi = 1_000_000, nbins = 200))
     get_sim!(TN, h, mu, rho)
 
-    stat = pre_fit(h, 2, mu, FitOptions(TN[1]))
+    stat = pre_fit!(FitOptions(TN[1]), h, 2, mu)
     @test isassigned(stat, 1)
     stat = stat[1]
 

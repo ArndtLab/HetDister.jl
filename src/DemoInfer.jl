@@ -19,7 +19,7 @@ include("simulate.jl")
 include("corrections.jl")
 
 export get_sim!,
-    pre_fit, demoinfer, compare_models,
+    pre_fit, pre_fit!, demoinfer, compare_models,
     get_para, evd, sds, pop_sizes, durations, get_chain,
     compute_residuals,
     adapt_histogram,
@@ -124,31 +124,33 @@ common midpoints for bins, the two rescaled weights and variances of
 the difference between weights.
 """
 function compare_mlds(segs1::AbstractVector{<:Integer}, segs2::AbstractVector{<:Integer}; lo = 1, hi = 1_000_000, nbins = 200)
+    theta1 = 1/mean(segs1)
+    theta2 = 1/mean(segs2)
+    h1 = Histogram(LogEdgeVector(lo = lo, hi = hi, nbins = nbins))
+    append!(h1, segs1)
+    h2 = Histogram(LogEdgeVector(lo = lo, hi = hi, nbins = nbins))
+    append!(h2, segs2)
+    return compare_mlds!(h1, h2, theta1, theta2)
+end
+function compare_mlds!(h1, h2, theta1, theta2) # add !
     # 1 is the target lattice, i.e. with biggest theta
-    segs1_ = copy(segs1)
-    segs2_ = copy(segs2)
-    theta1 = 1/mean(segs1_)
-    theta2 = 1/mean(segs2_)
+    @assert any(h1.weights .!= h2.weights)
     swap = false
     if theta1 < theta2
-        temp = copy(segs1_)
-        segs1_ = copy(segs2_)
-        segs2_ = temp
+        temp = deepcopy(h1)
+        h1 = deepcopy(h2)
+        h2 = temp
         theta1, theta2 = theta2, theta1
         swap = true
     end
-    h1 = HistogramBinnings.Histogram(LogEdgeVector(lo = lo, hi = hi, nbins = nbins))
-    append!(h1, segs1_)
-    h2 = HistogramBinnings.Histogram(LogEdgeVector(lo = lo, hi = hi, nbins = nbins))
-    append!(h2, segs2_)
     edges1 = h1.edges[1].edges * theta1
     edges2 = h2.edges[1].edges * theta2
     tw = zeros(Float64, length(h1.weights))
     w2 = h2.weights
-    factor = length(segs1_) / length(segs2_)
+    factor = sum(h1.weights) / sum(h2.weights)
     t = 1
     f = 1
-    while t < length(edges1) && f < length(edges2)
+    while t < length(edges1) && f < length(edges2) && h1.weights[t] > 0 && w2[f] > 0
         st, en = edges1[t], edges1[t+1]
         width = edges2[f+1] - edges2[f]
         if st <= edges2[f] < edges2[f+1] < en
@@ -179,10 +181,11 @@ function compare_mlds(segs1::AbstractVector{<:Integer}, segs2::AbstractVector{<:
     
     rs = midpoints(h1.edges[1]) * theta1
     sigmasq = h1.weights .+ tw * factor^2
+    maxl = min(t,f,length(h1.weights),length(tw))
     if swap
-        return rs, tw * factor, h1.weights, sigmasq
+        return rs[1:maxl], tw[1:maxl] * factor, h1.weights[1:maxl], sigmasq[1:maxl]
     else
-        return rs, h1.weights, tw * factor, sigmasq
+        return rs[1:maxl], h1.weights[1:maxl], tw[1:maxl] * factor, sigmasq[1:maxl]
     end
 end
 

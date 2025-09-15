@@ -51,12 +51,13 @@ end
 
 # --- fitting
 
-function fit_model_epochs(h::Histogram{T,1,E}, mu::Float64, options::FitOptions) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
-    fit_model_epochs(h.edges[1], h.weights, mu, options)
+function fit_model_epochs!(options::FitOptions, h::Histogram{T,1,E}, mu::Float64) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
+    fit_model_epochs!(options, h.edges[1], h.weights, mu)
 end
 
-function fit_model_epochs(
-    edges::AbstractVector{<:Integer}, counts::AbstractVector{<:Integer}, mu::Float64, options::FitOptions
+
+function fit_model_epochs!(
+    options::FitOptions, edges::AbstractVector{<:Integer}, counts::AbstractVector{<:Integer}, mu::Float64
 )
 
     # get a good initial guess
@@ -76,6 +77,7 @@ function fit_model_epochs(
     
     hess = DemoInfer.getHessian(mle)
     eigen_problem = eigen(hess)
+    lambdas = eigen_problem.values
 
     at_uboundary = map((x,u) -> (x>u/1.05), para, options.upp)
     at_lboundary = map((l,x) -> (x<l*1.05), options.low, para)
@@ -84,10 +86,18 @@ function fit_model_epochs(
     p = fill(1, length(para))
     ci_low = fill(-Inf, length(para))
     ci_high = fill(Inf, length(para))
-    #TODO: remove some stuff
-    try 
-        # stderrors = StatsBase.stderror(mle)
-        stderrors = sqrt.(diag(pinv(hess)))
+    evidence = -Inf
+    manual_flag = true
+    if isreal(lambdas)
+        lambdas = real.(lambdas)
+        if any(lambdas .< 0)
+            manual_flag = false
+        end
+        lambdas[lambdas .<= 0] .= eps()
+        vars_ = diag( eigen_problem.vectors *
+            diagm(inv.(lambdas)) * eigen_problem.vectors'
+        )
+        stderrors = sqrt.(vars_)
         zscore = para ./ stderrors
         p = map(z -> StatsAPI.pvalue(Distributions.Normal(), z; tail=:right), zscore)
     
@@ -95,17 +105,8 @@ function fit_model_epochs(
         q = Statistics.quantile(Distributions.Normal(), (1 + options.level) / 2)
         ci_low = para .- q .* stderrors
         ci_high = para .+ q .* stderrors
-    catch
-        # most likely computing stderrors failed
-        # we stay with the default values
-    end
     
-    # assuming uniform prior
-    lambdas = eigen_problem.values
-    evidence = -Inf
-    if isreal(lambdas)
-        lambdas = real.(lambdas)
-        lambdas[lambdas .< 0] .= eps()
+        # assuming uniform prior
         evidence = lp + sum(log.(1.0 ./ (options.upp - options.low)) .+ 0.5*log(2*pi)) - 
             0.5 * sum(log.(lambdas))
     end
@@ -119,7 +120,7 @@ function fit_model_epochs(
         para_name,
         para,
         summary(mle.optim_result),
-        Optim.converged(mle.optim_result),
+        Optim.converged(mle.optim_result) && manual_flag,
         lp,
         evidence,
         (; 

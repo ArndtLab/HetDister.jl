@@ -47,6 +47,7 @@ that the total expected volume of the histogram is 2e8.
 - `restart::Int=100`: The number of iterations after which the fit is restarted with
 a different seed. Set to a default high number, it should not be needed.
 - `top::Int=1`: the number of fits at chain tail which is averaged for the final estimate.
+- `level::Float64=0.95`: the confidence level for the confidence intervals.
 """
 function demoinfer(segments::AbstractVector{<:Integer}, epochrange::UnitRange{Int}, mu::Float64, rho::Float64;
     fop::FitOptions = FitOptions(sum(segments)),
@@ -83,7 +84,7 @@ function demoinfer(h::Histogram{T,1,E}, epochrange::UnitRange{Int}, mu::Float64,
         @warn "inconsistent Ltot and fit options, taking Ltot"
         fop.Ltot = Ltot
     end
-    f = pre_fit(h, last(epochrange), mu, fop; require_convergence = false)
+    f = pre_fit!(fop, h, last(epochrange), mu; require_convergence = false)
     nepochs = length(f)
     if nepochs < last(epochrange)
         @warn "for models above $nepochs no signal was found, stopping at $nepochs"
@@ -133,7 +134,8 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
     iters::Int = 8,
     s::Int = 1234,
     restart::Int = 100,
-    top::Int = 1
+    top::Int = 1,
+    level::Float64 = 0.95
 )
     Random.seed!(s)
 
@@ -170,8 +172,8 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
         ho_mod.weights .= max.(temp, 0)
         
         setinit!(fop, init_)
-        f = fit_model_epochs(ho_mod, mu, fop)
-        f = perturb_fit!(f, ho_mod, mu, fop)
+        f = fit_model_epochs!(fop, ho_mod, mu)
+        f = perturb_fit!(f, fop, ho_mod, mu)
 
         init_ = f.para
         push!(chain, f)
@@ -200,7 +202,7 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
         estimate_sd .+= sds(chain_[end-j+1]) .^2
         evidence += evd(chain_[end-j+1])
         lp += chain_[end-j+1].lp
-        correction .+= corrections[mask][end-j+1]
+        correction .+= corrections[end-j+1]
         sample_size += 1
     end
     estimate ./= sample_size
@@ -210,22 +212,12 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
     correction ./= sample_size
     corrected_weights = integral_ws(h_obs.edges[1].edges, mu, estimate) .+ correction
     
-    zscore = fill(0.0, length(estimate))
-    p = fill(1, length(estimate))
-    ci_low = fill(-Inf, length(estimate))
-    ci_high = fill(Inf, length(estimate))
-    try 
-        zscore = estimate ./ estimate_sd
-        p = map(z -> StatsAPI.pvalue(Distributions.Normal(), z; tail=:right), zscore)
-    
-        # Confidence interval (CI)
-        q = Statistics.quantile(Distributions.Normal(), (1 + level) / 2)
-        ci_low = para .- q .* estimate_sd
-        ci_high = para .+ q .* estimate_sd
-    catch
-        # most likely computing stderrors failed
-        # we stay with the default values
-    end
+    zscore = estimate ./ estimate_sd
+    p = map(z -> StatsAPI.pvalue(Distributions.Normal(), z; tail=:right), zscore)
+    # Confidence interval (CI)
+    q = Statistics.quantile(Distributions.Normal(), (1 + level) / 2)
+    ci_low = estimate .- q .* estimate_sd
+    ci_high = estimate .+ q .* estimate_sd
 
     final_fit = FitResult(
         nepochs,
@@ -270,17 +262,19 @@ function compare_models(models::Vector{FitResult})
     best = 1
     lp = ms[1].lp
     ev = evd(ms[1])
+    mono = true
     for i in eachindex(ms)
         if evd(ms[i]) > ev && ms[i].lp >= lp
             best = i
             lp = ms[i].lp
             ev = evd(ms[i])
-        elseif ms[i].lp < lp
+        elseif ms[i].lp < lp && mono
             @warn """
                 log-likelihood is not monotonic in the number of epochs.
                 This means that at least one likelihood optimization
                 has probably failed. You may want to change the fit options.
             """
+            mono = false
         end
     end
     return ms[best]
