@@ -1,5 +1,5 @@
 using DemoInfer
-using DemoInfer: npar, setinit!, fit_model_epochs, PInit, 
+using DemoInfer: npar, setinit!, fit_model_epochs!, PInit, 
     setnepochs!, deviant, timesplitter, integral_ws, next!,
     reset_perturb!, perturb_fit!
 using PopSimIBX
