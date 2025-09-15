@@ -19,7 +19,7 @@ include("simulate.jl")
 include("corrections.jl")
 
 export get_sim!,
-    pre_fit, demoinfer, compare_models,
+    pre_fit, pre_fit!, demoinfer, compare_models,
     get_para, evd, sds, pop_sizes, durations, get_chain,
     compute_residuals,
     adapt_histogram,
