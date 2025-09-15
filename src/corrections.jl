@@ -84,7 +84,7 @@ function demoinfer(h::Histogram{T,1,E}, epochrange::UnitRange{Int}, mu::Float64,
         @warn "inconsistent Ltot and fit options, taking Ltot"
         fop.Ltot = Ltot
     end
-    f = pre_fit(h, last(epochrange), mu, fop; require_convergence = false)
+    f = pre_fit!(fop, h, last(epochrange), mu; require_convergence = false)
     nepochs = length(f)
     if nepochs < last(epochrange)
         @warn "for models above $nepochs no signal was found, stopping at $nepochs"
@@ -172,8 +172,8 @@ function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Lt
         ho_mod.weights .= max.(temp, 0)
         
         setinit!(fop, init_)
-        f = fit_model_epochs(ho_mod, mu, fop)
-        f = perturb_fit!(f, ho_mod, mu, fop)
+        f = fit_model_epochs!(fop, ho_mod, mu)
+        f = perturb_fit!(f, fop, ho_mod, mu)
 
         init_ = f.para
         push!(chain, f)
@@ -262,17 +262,19 @@ function compare_models(models::Vector{FitResult})
     best = 1
     lp = ms[1].lp
     ev = evd(ms[1])
+    mono = true
     for i in eachindex(ms)
         if evd(ms[i]) > ev && ms[i].lp >= lp
             best = i
             lp = ms[i].lp
             ev = evd(ms[i])
-        elseif ms[i].lp < lp
+        elseif ms[i].lp < lp && mono
             @warn """
                 log-likelihood is not monotonic in the number of epochs.
                 This means that at least one likelihood optimization
                 has probably failed. You may want to change the fit options.
             """
+            mono = false
         end
     end
     return ms[best]

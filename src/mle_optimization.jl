@@ -51,12 +51,13 @@ end
 
 # --- fitting
 
-function fit_model_epochs(h::Histogram{T,1,E}, mu::Float64, options::FitOptions) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
-    fit_model_epochs(h.edges[1], h.weights, mu, options)
+function fit_model_epochs!(options::FitOptions, h::Histogram{T,1,E}, mu::Float64) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
+    fit_model_epochs!(options, h.edges[1], h.weights, mu)
 end
 
-function fit_model_epochs(
-    edges::AbstractVector{<:Integer}, counts::AbstractVector{<:Integer}, mu::Float64, options::FitOptions
+
+function fit_model_epochs!(
+    options::FitOptions, edges::AbstractVector{<:Integer}, counts::AbstractVector{<:Integer}, mu::Float64
 )
 
     # get a good initial guess

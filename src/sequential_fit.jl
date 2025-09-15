@@ -103,7 +103,7 @@ function epochfinder!(init::Vector{T}, N0, t, fop::FitOptions) where {T <: Numbe
     return init
 end
 
-function perturb_fit!(f::FitResult, h::Histogram, mu::Float64, fop::FitOptions;
+function perturb_fit!(f::FitResult, fop::FitOptions, h::Histogram, mu::Float64;
     by_pass::Bool = false
 )
     f_ = deepcopy(f)
@@ -116,7 +116,7 @@ function perturb_fit!(f::FitResult, h::Histogram, mu::Float64, fop::FitOptions;
             setinit!(fop, f.para)
             set_perturb!(fop, f)
             setinit!(fop, pinit)
-            f = fit_model_epochs(h, mu, fop)
+            f = fit_model_epochs!(fop, h, mu)
             if !isinf(evd(f)) & f.converged
                 if by_pass
                     break
@@ -134,13 +134,15 @@ end
 
 """
     pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number; require_convergence=true)
-    pre_fit(h::Histogram, nfits::Int, mu::Float64, fop::FitOptions; require_convergence=true)
+    pre_fit!(fop::FitOptions, h::Histogram, nfits::Int, mu::Float64; require_convergence=true)
 
 Preliminarily fit `h` with an approximate model of piece-wise constant 
 epochs for each number of epochs from 1 to `nfits`.
 
 If given the total length of the genome `Ltot` it initialize the fit 
 options to default. See [`FitOptions`](@ref) for how to specify them.
+Otherwise it modifies `fop` in place to adapt it to all the requested
+epochs.
 The mutation rate `mu` is assumed to be per base pairs per generation
 and the total length of the genome `Ltot` is in base pairs. Return a 
 vector of `FitResult`, one for each number of epochs,
@@ -150,10 +152,10 @@ function pre_fit(h::Histogram{T,1,E}, nfits::Int, mu::Float64, Ltot::Number;
     require_convergence::Bool = true
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
     fop = FitOptions(Ltot)
-    return pre_fit(h, nfits, mu, fop; require_convergence)
+    return pre_fit!(fop, h, nfits, mu; require_convergence)
 end
 
-function pre_fit(h::Histogram{T,1,E}, nfits::Int, mu::Float64, fop::FitOptions;
+function pre_fit!(fop::FitOptions, h::Histogram{T,1,E}, nfits::Int, mu::Float64;
     require_convergence::Bool = true
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
     fits = FitResult[]
@@ -162,7 +164,7 @@ function pre_fit(h::Histogram{T,1,E}, nfits::Int, mu::Float64, fop::FitOptions;
     for i in 1:nfits
         setnepochs!(fop, i)
         if i == 1
-            f = fit_model_epochs(h, mu, fop)
+            f = fit_model_epochs!(fop, h, mu)
         else
             ts = timesplitter(h, mu, fits[i-1].para; fop.smallest_segment)
             if iszero(ts)
@@ -189,13 +191,13 @@ function pre_fit(h::Histogram{T,1,E}, nfits::Int, mu::Float64, fop::FitOptions;
                 init = get_para(fits[i-1])
                 epochfinder!(init, N0, ts[j], fops[j])
                 setinit!(fops[j], init)
-                f = fit_model_epochs(h, mu, fops[j])
-                f = perturb_fit!(f, h, mu, fops[j]; by_pass=true)
+                f = fit_model_epochs!(fops[j], h, mu)
+                f = perturb_fit!(f, fops[j], h, mu; by_pass=true)
                 fs[j] = f
             end
             lps = map(f->f.lp, fs)
             f = fs[argmax(lps)]
-            f = perturb_fit!(f, h, mu, fop)
+            f = perturb_fit!(f, fop, h, mu)
             if require_convergence && !f.converged
                 @info "pre_fit: not converged, epoch $i"
                 return fits
