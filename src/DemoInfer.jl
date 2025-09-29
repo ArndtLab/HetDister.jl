@@ -1,7 +1,7 @@
 module DemoInfer
 
 using StatsBase, Distributions, HistogramBinnings
-using PopSimIBX
+using PopSim
 using LinearAlgebra, Statistics
 using Turing, Optim
 using StatsAPI

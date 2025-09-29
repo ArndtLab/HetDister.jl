@@ -11,21 +11,16 @@ the IBS segments in the `h`.
 - `factor`: determine how many genomes are simulated and averaged
 """
 function get_sim!(params::Vector, h::Histogram, mu::Float64, rho::Float64; factor = 1)
-    L = Int(ceil(params[1]))
-    Ns = Int.(ceil.(reverse(params[2:2:end])))
-    any(Ns .< 10) && error("Population sizes must be at least 10")
-    Ts = Int.(ceil.(cumsum(reverse(params[3:2:end]))))
-    Ts = [0, Ts...]
-    any(Ts .< 0) && error("Times must be non-negative")
-    
-    pop_sim = VaryingPopulation(;
-        genome_length = L,
-        mutation_rate = mu, recombination_rate = rho,
-        population_sizes = Ns,
-        times = Ts,
-    )
+
+    tnv = map(x -> ceil(Int, x), params)
+    pop = VaryingPopulation(; TNvector = tnv, mutation_rate = mu, recombination_rate = rho)
+
+
     h.weights .= 0
     for _ in 1:factor
-        append!(h, IBSIterator(SMCprime.IBDIterator(pop_sim), pop_sim.mutation_rate))
+        for ibs_segment in IBSIterator(PopSim.SMCprimeapprox.IBDIterator(pop), mu)
+            push!(h, length(ibs_segment))
+        end
     end
+    
 end
