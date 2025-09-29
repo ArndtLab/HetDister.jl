@@ -115,22 +115,18 @@ end
     @test !any(ws .< 0)
 end
 
-function get_sim(TN::Vector, mu::Number, rho::Number)
-    L = TN[1]
-    Ns = reverse(TN[2:2:end])
-    Ts = cumsum(reverse(TN[3:2:end]))
-    Ts = [0, Ts...]
-    
-    pop = VaryingPopulation(;
-        genome_length = L, 
-        mutation_rate = mu, recombination_rate = rho,
-        population_sizes = Ns,
-        times = Ts,
-    )
 
-    ibs_segments = segment_length.(collect(IBSIterator(SMCprime.IBDIterator(pop), pop.mutation_rate)));
-    ibs_segments
+function get_sim(params::Vector, mu::Float64, rho::Float64)
+
+    tnv = map(x -> ceil(Int, x), params)
+    pop = VaryingPopulation(; TNvector = tnv, mutation_rate = mu, recombination_rate = rho)
+
+    map(IBSIterator(PopSim.SMCprimeapprox.IBDIterator(pop), mu)) do ibs_segment
+        length(ibs_segment)
+    end
 end
+
+
 
 @testset "fitting procedure" begin
     @testset "exhaustive pre-fit $(length(TN)÷2) epochs,  mu $mu, rho $rho" for (mu,rho,TN) in itr
