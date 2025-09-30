@@ -17,7 +17,7 @@ function get_sim!(params::Vector, h::Histogram, mu::Float64, rho::Float64; facto
 
 
     h.weights .= 0
-    for _ in 1:factor
+    @threads for _ in 1:factor
         for ibs_segment in IBSIterator(PopSim.SMCprimeapprox.IBDIterator(pop), mu)
             push!(h, length(ibs_segment))
         end
