@@ -23,13 +23,13 @@ function get_sim!(params::Vector, h::Histogram, mu::Float64, rho::Float64; facto
     
     h.weights .= 0
     hs = map(x->Histogram(h.edges), 1:factor)
-    @threads for i in 1:ceil(Int, factor)
+    @threads for i in eachindex(hs)
         for ibs_segment in ibs(anc)
             push!(hs[i], length(ibs_segment))
         end
     end
 
-    for i in 1:factor
+    for i in eachindex(hs)
         h.weights .+= hs[i].weights
     end
 
