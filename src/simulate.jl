@@ -13,13 +13,18 @@ the IBS segments in the `h`.
 function get_sim!(params::Vector, h::Histogram, mu::Float64, rho::Float64; factor = 1)
 
     tnv = map(x -> ceil(Int, x), params)
-    pop = VaryingPopulation(; TNvector = tnv, mutation_rate = mu, recombination_rate = rho)
 
+    d = Demography()
+    PopSim.set_via_TNvector!(d, tnv)
+    g = Genome(UniformRate(rho), UniformRate(mu),  tnv[1])
 
+    anc = sim_ancestry(SMCprime(), d, g, 2)
+
+    
     h.weights .= 0
     hs = map(x->Histogram(h.edges), 1:factor)
     @threads for i in 1:factor
-        for ibs_segment in IBSIterator(PopSim.SMCprimeapprox.IBDIterator(pop), mu)
+        for ibs_segment in ibs(anc)
             push!(hs[i], length(ibs_segment))
         end
     end
