@@ -94,10 +94,7 @@ end
     ts = timesplitter(h, mu, get_para(stat); frame = 10)
     @test length(ts) >= 2
 
-    f = demoinfer(h, 1:length(TN)÷2, mu, rho, TN[1];
-        iters = 1
-    )
-    f = demoinfer(h, length(TN)÷2, mu, rho, TN[1], Float64.(TN);
+    f = demoinfer(h, length(TN)÷2, mu, rho, TN[1];
         iters = 1
     )
     @test length(f.opt.chain) == 1
@@ -148,7 +145,7 @@ end
         h = adapt_histogram(ibs_segments)
         Ltot = sum(ibs_segments)
         pfits = pre_fit(h, 5, mu, Ltot; require_convergence = false)
-        fits = demoinfer(h, 4:5, mu, rho, Ltot; annealing = (L,it)->1)
+        fits = demoinfer(h, 5, mu, rho, Ltot; annealing = (L,it)->1)
         best = compare_models(fits)
         @test !isnothing(best)
         @test best.nepochs == 5
