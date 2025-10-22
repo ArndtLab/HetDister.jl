@@ -21,10 +21,11 @@ function (a::Sq)(L, it)
 end
 
 """
-    demoinfer(segments::AbstractVector{<:Integer}, epochrange::UnitRange{Int}, mu::Float64, rho::Float64; kwargs...)
+    demoinfer(segments::AbstractVector{<:Integer}, epochrange::Int, mu::Float64, rho::Float64; kwargs...)
 
 Make an histogram with IBS `segments` and infer demographic histories with
-piece-wise constant epochs where the number of epochs is in `epochrange`.
+piece-wise constant epochs where the number of epochs is smaller or equal 
+to `epochrange`.
 
 Return a vector of `FitResult` of length smaller or equal to `epochrange`, 
 see [`FitResult`](@ref), `mu` and `rho` are respectively the mutation 
@@ -44,12 +45,10 @@ function with signature `(L, it) -> factor` with `L` the genome length and `it` 
 iteration index. By default it is computed adaptively based on the input data, such 
 that the total expected volume of the histogram is 2e8.
 - `s::Int=1234`: The random seed for the random number generator, used to compute the correction.
-- `restart::Int=100`: The number of iterations after which the fit is restarted with
-a different seed. Set to a default high number, it should not be needed.
 - `top::Int=1`: the number of fits at chain tail which is averaged for the final estimate.
 - `level::Float64=0.95`: the confidence level for the confidence intervals.
 """
-function demoinfer(segments::AbstractVector{<:Integer}, epochrange::UnitRange{Int}, mu::Float64, rho::Float64;
+function demoinfer(segments::AbstractVector{<:Integer}, epochrange::Int, mu::Float64, rho::Float64;
     fop::FitOptions = FitOptions(sum(segments)),
     lo::Int = 1, hi::Int = 50_000_000, nbins::Int = 200,
     kwargs...
@@ -64,16 +63,145 @@ function demoinfer(segments::AbstractVector{<:Integer}, epochrange::UnitRange{In
     )
 end
 
-"""
-    demoinfer(h, epochrange, mu, rho, Ltot; kwargs...)
+function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, mu::Float64, rho::Float64, Ltot::Number;
+    fop::FitOptions = FitOptions(Ltot),
+    annealing = nothing,
+    iters::Int = 8,
+    s::Int = 1234,
+    top::Int = 1,
+    level::Float64 = 0.95
+) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
+    @assert !isempty(h_obs.weights) "histogram is empty"
+    @assert epochs > 0 "epochrange has to be strictly positive"
+    if Ltot != fop.Ltot
+        @warn "inconsistent Ltot and fit options, taking Ltot"
+        fop.Ltot = Ltot
+    end
+    if isnothing(annealing)
+        target = 2e8
+        thetaL = sum(h_obs.weights)
+        factor = target / thetaL
+        factor = max(1, factor)
+        annealing = (L, it) -> factor
+    end
 
-Does the same as above, but takes a histogram as input and the total
-length of the IBS segments.
+    Random.seed!(s)
+
+    h_sim = Histogram(h_obs.edges)
+    ho_mod = Histogram(h_obs.edges)
+
+    chain = []
+    corrections = []
+    corvars = []
+
+    fits = pre_fit!(fop, h_obs, epochs, mu; require_convergence = false)
+    f = compare_models(fits)
+    init = get_para(f)
+    for iter in 1:iters
+        weights_th = integral_ws(h_obs.edges[1], mu, init)
+        factor = annealing(Ltot, iter)
+        get_sim!(init, h_sim, mu, rho; factor)
+
+        ho_mod.weights .= h_obs.weights
+    
+        diff = (h_sim.weights/factor .- weights_th)
+        vard = h_sim.weights/factor^2
+        diff[1:4] .= 0.
+        temp = ho_mod.weights .- diff
+        temp .= round.(Int, temp)
+        ho_mod.weights .= max.(temp, 0)
+        
+        fits = pre_fit!(fop, ho_mod, epochs, mu; require_convergence = false)
+        f = compare_models(fits)
+
+        init = f.para
+        push!(chain, fits)
+        push!(corrections, diff)
+        push!(corvars, vard)
+        if iter > 1
+            deltacorr = (corrections[iter] .- corrections[iter-1]) ./ sqrt.(corvars[iter] .+ corvars[iter-1] .+ 1e-10)
+            if abs(mean(deltacorr)) < 1/sqrt(length(deltacorr))
+                break
+            end
+        end
+    end
+
+    bestchain = map(c -> compare_models(c), chain)
+    f = bestchain[end]
+    estimate = zeros(length(f.para))
+    estimate_sd = zeros(length(f.para))
+    evidence = 0
+    lp = 0
+    correction = zeros(length(h_obs.weights))
+    sample_size = 0
+    mask = map(c -> c.converged && !isinf(evd(c)), bestchain)
+    chain_ = bestchain[mask]
+    conv = true
+    if isempty(chain_)
+        @warn "fits did not converge or have infinite evidence"
+        conv = false
+        chain_= bestchain
+        mask = fill(true, length(bestchain))
+    elseif length(chain_) < top
+        @warn "not enough converged fits found, using only $(length(chain_)) fits"
+    end
+    for j in 1:min(length(chain_),top)
+        if length(chain_[end-j+1].para) != length(estimate)
+            continue
+        end
+        estimate .+= chain_[end-j+1].para
+        estimate_sd .+= sds(chain_[end-j+1]) .^2
+        evidence += evd(chain_[end-j+1])
+        lp += chain_[end-j+1].lp
+        correction .+= corrections[end-j+1]
+        sample_size += 1
+    end
+    estimate ./= sample_size
+    estimate_sd .= sqrt.(estimate_sd./sample_size)
+    evidence /= sample_size
+    lp /= sample_size
+    correction ./= sample_size
+    corrected_weights = integral_ws(h_obs.edges[1].edges, mu, estimate) .+ correction
+    
+    zscore = estimate ./ estimate_sd
+    p = map(z -> StatsAPI.pvalue(Distributions.Normal(), z; tail=:right), zscore)
+    # Confidence interval (CI)
+    q = Statistics.quantile(Distributions.Normal(), (1 + level) / 2)
+    ci_low = estimate .- q .* estimate_sd
+    ci_high = estimate .+ q .* estimate_sd
+
+    FitResult(
+        f.nepochs,
+        f.bin,
+        f.mu,
+        estimate,
+        estimate_sd,
+        f.para_name,
+        estimate,
+        "iterative fit",
+        conv,
+        lp,
+        evidence,
+        (;
+            chain, corrections, corvars, sample_size,
+            zscore,
+            pvalues = p, ci_low, ci_high,
+            h_obs, corrected_weights
+        )
+    )
+end
+
+"""
+    demoinfer_(h, epochrange, mu, rho, Ltot; kwargs...)
+
+Infer demographic histories with piece-wise constant epochs
+where the number of epochs is in `epochrange`. Takes a histogram
+as input and the total length of the IBS segments.
 
 It is much lighter to distribute the histogram than the vector of segments
 which may also be streamed directly from disk into the histogram.
 """
-function demoinfer(h::Histogram{T,1,E}, epochrange::UnitRange{Int}, mu::Float64, rho::Float64, Ltot::Number;
+function demoinfer_(h::Histogram{T,1,E}, epochrange::UnitRange{Int}, mu::Float64, rho::Float64, Ltot::Number;
     fop::FitOptions = FitOptions(Ltot),
     annealing = nothing,
     kwargs...
@@ -111,7 +239,7 @@ function demoinfer(h::Histogram{T,1,E}, epochrange::UnitRange{Int}, mu::Float64,
     end
     @threads for n in eachindex(epochrange)
         epochs = epochrange[n]
-        results[n] = demoinfer(h, epochs, mu, rho, Ltot, get_para(f[epochs]);
+        results[n] = demoinfer_(h, epochs, mu, rho, Ltot, get_para(f[epochs]);
             fop = fops[n], annealing, kwargs...
         )
     end
@@ -120,7 +248,7 @@ function demoinfer(h::Histogram{T,1,E}, epochrange::UnitRange{Int}, mu::Float64,
 end
 
 """
-    demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64}; kwargs...)
+    demoinfer_(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64}; kwargs...)
 
 Fit iteratively histogram `h_obs` with a single demographic model 
 of piece-wise constant `nepochs` starting from an initial parameter vector `init`.
@@ -128,7 +256,7 @@ of piece-wise constant `nepochs` starting from an initial parameter vector `init
 Return a `FitResult`, see [`FitResult`](@ref), above methods fall back to this,
 which is called on multiple threads if available.
 """
-function demoinfer(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64};
+function demoinfer_(h_obs::Histogram, nepochs::Int, mu::Float64, rho::Float64, Ltot::Number, init::Vector{Float64};
     fop::FitOptions = FitOptions(Ltot),
     annealing = Sq(),
     iters::Int = 8,

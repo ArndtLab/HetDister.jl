@@ -197,6 +197,7 @@ function pre_fit!(fop::FitOptions, h::Histogram{T,1,E}, nfits::Int, mu::Float64;
             end
             lps = map(f->f.lp, fs)
             f = fs[argmax(lps)]
+            @debug "best " ts[argmax(lps)] f.lp f.converged
             f = perturb_fit!(f, fop, h, mu)
             if require_convergence && !f.converged
                 @info "pre_fit: not converged, epoch $i"

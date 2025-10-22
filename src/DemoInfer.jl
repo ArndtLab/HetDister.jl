@@ -134,7 +134,8 @@ function compare_mlds(segs1::AbstractVector{<:Integer}, segs2::AbstractVector{<:
 end
 function compare_mlds!(h1, h2, theta1, theta2) # add !
     # 1 is the target lattice, i.e. with biggest theta
-    @assert any(h1.weights .!= h2.weights)
+    length(h1.weights) == length(h2.weights) && @assert any(h1.weights .!= h2.weights)
+    @assert theta1 != theta2
     swap = false
     if theta1 < theta2
         temp = deepcopy(h1)
@@ -174,6 +175,7 @@ function compare_mlds!(h1, h2, theta1, theta2) # add !
                 tw[t] += w2[f]
                 f += 1
             else
+                f > t ? t+=1 : f+=1
                 @error "disjoint bins"
             end
         end
