@@ -21,11 +21,7 @@ function getns(TN::AbstractVector{T}, i::Int) where T
     # TN = [L, N0, T1, N1, T2, N2, ...]
     # returns the ordered population sizes in reverse order
     (i < 1 || i > length(TN) ÷ 2) && throw(ArgumentError("index out of bounds"))
-    s = zero(T)
-    for j in 1:i
-        s += TN[end-2*(j-1)]
-    end
-    return s
+    return TN[end-2*(i-1)]
 end
 
 """

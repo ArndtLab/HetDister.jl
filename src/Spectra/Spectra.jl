@@ -2,6 +2,7 @@ module Spectra
 
 using LinearAlgebra
 using ForwardDiff
+using PreallocationTools
 
 include("CoalescentBase.jl")
 using .CoalescentBase
@@ -10,7 +11,9 @@ include("SMCpIntegrals.jl")
 using .SMCpIntegrals
 
 export 
-    hid, hid_integral, firstorder, firstorderint, laplacekingman, mldsmcp, mldsmcp!, IntegralArrays
+    hid, hid_integral, firstorder, firstorderint, 
+	laplacekingman, laplacekingmanint, 
+	mldsmcp!, IntegralArrays
 
 # Computing
 
@@ -51,15 +54,30 @@ function hid_integral(Nv::Vector, Tv::Vector, L::Number, mu::Float64, r::Number)
 	# prefactor    pure bliss
 end
 
-function mldsmcp!(ys::AbstractVector{<:Real}, range::AbstractRange{<:Int}, bag::IntegralArrays{<:Real},
+function mldsmcp!(bag::IntegralArrays, range::AbstractRange{<:Int},
     rs::Vector{<:Real}, edges::Vector{<:Real}, mu::Real, rho::Real,
     TN::AbstractVector{<:Real}
 )
     prordn!(bag, rs, edges, mu+rho, TN)
-    ys .= 0.
+	mldsmcp!(bag, range, mu, rho, TN)
+	return nothing
+end
+
+function mldsmcp!(bag::IntegralArrays, range::AbstractRange{<:Int}, 
+	mu::Real, rho::Real, TN::AbstractVector{<:Real}
+)
+	mldsmcp!(get_tmp(bag.ys, eltype(TN)), get_tmp(bag.res, eltype(TN)), range, mu, rho, TN)
+	return nothing
+end
+
+function mldsmcp!(m::AbstractVector{<:Real}, res::AbstractMatrix{<:Real},
+	range::AbstractRange{<:Int}, mu::Real, rho::Real, TN::AbstractVector{<:Real}
+)
+    m .= 0
     for i in range
-        ys .+= bag.res[:,i] * 2 * mu * TN[1] * (rho/(mu+rho))^(i-1) * (mu/(mu+rho))
+        m .= m .+ view(res,:,i) .* (2 * mu * TN[1] * (rho/(mu+rho))^(i-1) * (mu/(mu+rho)))
     end
+	return nothing
 end
 
 function laplacekingman(r::Real, mu::Real, TN::AbstractVector{<:Real})

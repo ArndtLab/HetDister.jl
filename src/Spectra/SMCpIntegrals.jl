@@ -3,11 +3,13 @@ module SMCpIntegrals
 using FastGaussQuadrature
 using LinearAlgebra
 using Base.Threads
+using PreallocationTools
 
 include("CoalescentBase.jl")
 using .CoalescentBase
 
-export IntegralArrays, prordn!, firstorder, firstorderint
+export IntegralArrays, prordn!,
+    firstorder, firstorderint
 
 function Nt(t::Real, TN::AbstractVector{<:Real})
     pnt = 1
@@ -126,41 +128,60 @@ struct IntegralArrays{T}
     order::Int
     n_dt::Int
     nrs::Int
-    res::Matrix{T}
-    jprt::Matrix{T}
-    temp::Matrix{T}
-    qtt::Matrix{T}
-    zs::Vector{T}
-    wt::Vector{T}
-    ts::Vector{T}
-    dts::Vector{T}
+    ys::DiffCache{Vector{T},Vector{T}}
+    res::DiffCache{Matrix{T},Vector{T}}
+    jprt::DiffCache{Matrix{T},Vector{T}}
+    temp::DiffCache{Matrix{T},Vector{T}}
+    qtt::DiffCache{Matrix{T},Vector{T}}
+    zs::Vector{Float64}
+    wt::Vector{Float64}
+    ts::DiffCache{Vector{T},Vector{T}}
+    dts::DiffCache{Vector{T},Vector{T}}
 end
 
-function IntegralArrays(order::Int, ndt::Int, nrs::Int)
+function IntegralArrays(order::Int, ndt::Int, nrs::Int, chunk, levels = 1)
     t, w = gausslegendre(ndt)
-    IntegralArrays{Float64}(
+    IntegralArrays(
         order, ndt, nrs,
-        Array{Float64}(undef, nrs, order),
-        Array{Float64}(undef, ndt, nrs),
-        Array{Float64}(undef, nrs, ndt),
-        Array{Float64}(undef, ndt, ndt),
+        DiffCache(zeros(Float64, nrs), chunk; levels),
+        DiffCache(zeros(Float64, nrs, order), chunk; levels),
+        DiffCache(zeros(Float64, ndt, nrs), chunk; levels),
+        DiffCache(zeros(Float64, nrs, ndt), chunk; levels),
+        DiffCache(zeros(Float64, ndt, ndt), chunk; levels),
         t,
         w,
-        Array{Float64}(undef, ndt),
-        Array{Float64}(undef, ndt)
+        DiffCache(zeros(Float64, ndt), chunk; levels),
+        DiffCache(zeros(Float64, ndt), chunk; levels)
     )
 end
 
-function prordn!(bag::IntegralArrays{<:Real}, 
-    rs::Vector{<:Real}, edges::Vector{<:Real}, rate::Real, 
+function prordn!(bag::IntegralArrays,
+    rs::Vector{<:Real}, edges::Vector{<:Real}, rate::Real,
     TN::AbstractVector{<:Real}
 )
-    prordn!(bag.res, bag.jprt, bag.temp, bag.qtt, bag.zs, bag.wt, bag.ts, bag.dts, rs, edges, rate, bag.order, bag.n_dt, bag.nrs, TN)
+    res_ = get_tmp(bag.res, eltype(TN))
+    jprt_ = get_tmp(bag.jprt, eltype(TN))
+    temp_ = get_tmp(bag.temp, eltype(TN))
+    qtt_ = get_tmp(bag.qtt, eltype(TN))
+    ts_ = get_tmp(bag.ts, eltype(TN))
+    dts_ = get_tmp(bag.dts, eltype(TN))
+    prordn!(res_,
+        jprt_,
+        temp_,
+        qtt_,
+        bag.zs,
+        bag.wt,
+        ts_,
+        dts_,
+        rs, edges, rate, bag.order, bag.n_dt, bag.nrs, TN
+    )
     return nothing
 end
 
-function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real}, temp::AbstractMatrix{<:Real}, qtt::AbstractMatrix{<:Real},
-    zs::AbstractVector{<:Real}, wt::AbstractVector{<:Real}, ts::AbstractVector{<:Real}, dts::AbstractVector{<:Real},
+function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
+    temp::AbstractMatrix{<:Real}, qtt::AbstractMatrix{<:Real},
+    zs::AbstractVector{<:Real}, wt::AbstractVector{<:Real},
+    ts::AbstractVector{<:Real}, dts::AbstractVector{<:Real},
     rs::Vector{<:Real}, edges::Vector{<:Real}, rate::Real, order::Int, n_dt::Int, nrs::Int,
     TN::AbstractVector{<:Real}
 )
