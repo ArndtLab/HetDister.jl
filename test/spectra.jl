@@ -1,5 +1,7 @@
 using DemoInfer.Spectra
+using DemoInfer.Spectra.PreallocationTools
 using DemoInfer.Spectra.SMCpIntegrals: Nt, cumcr, pt, ptt
+using Test
 
 include("mathematica-derived.jl")
 
@@ -51,7 +53,7 @@ end
     N0 = 1_000
     ts = rand(1:40*N0, 10)
     for t in ts
-        @test MLDs.coalescent(t, [0, N0]) ≈ exp(-t / (2 * N0)) / (2 * N0)
+        @test Spectra.coalescent(t, [0, N0]) ≈ exp(-t / (2 * N0)) / (2 * N0)
     end
 end
 
@@ -60,7 +62,7 @@ end
     L = 3_000_000_000
     ts = rand(1:40*N0, 10)
     for t in ts
-        @test MLDs.extbps(t, [L, N0]) ≈ round(L * exp(-t / (2 * N0)))
+        @test Spectra.extbps(t, [L, N0]) ≈ round(L * exp(-t / (2 * N0)))
     end
 end
 
@@ -68,7 +70,7 @@ end
     N0 = 1_000
     ts = rand(1:40*N0, 10)
     for t in ts
-        @test abs(MLDs.lineages(t, 1, [1, N0]; k = 1.) - 2 * t * exp(-2 * t - 1/2N0) / 2N0) < eps(Float64)
+        @test abs(Spectra.lineages(t, 1, [1, N0]; k = 1.) - 2 * t * exp(-2 * t - 1/2N0) / 2N0) < eps(Float64)
     end
 end
 
@@ -105,8 +107,7 @@ end
     ed = collect(1:101)
     mu = 1e-8
     rho = 1e-8
-    y = zeros(length(rs))
-    bag = IntegralArrays(10, 100, length(rs))
-    mldsmcp!(y, 1:10, bag, rs, ed, mu, rho, TN)
-    @test all(y .> 0)
+    bag = IntegralArrays(10, 100, length(rs), length(TN), 3)
+    mldsmcp!(bag, 1:10, rs, ed, mu, rho, TN)
+    @test all(get_tmp(bag.ys, eltype(TN)).> 0)
 end
