@@ -3,6 +3,8 @@
 
 A data structure to store the results of a fit.
 
+See the introduction for how the model is 
+parameterized [Data form of input and output](@ref).
 Some methods are defined for this type to get the vector of parameters, std errors, 
 model evidence, etc. See [`get_para`](@ref), [`sds`](@ref), [`evd`](@ref), 
 [`pop_sizes`](@ref), [`durations`](@ref).
@@ -173,7 +175,8 @@ npar(fop::FitOptions) = 2fop.nepochs
 """
     FitOptions(Ltot, mu, rho; kwargs...)
 
-Construct an an object of type FitOptions, requiring total genome length `Ltot` in base pairs
+Construct an an object of type FitOptions, requiring 
+total genome length `Ltot` in base pairs,
 mutation rate and recombination rate per base pair per generation.
 
 ## Optional Arguments
@@ -182,16 +185,24 @@ mutation rate and recombination rate per base pair per generation.
 - `level::Float64=0.95`: The confidence level for the confidence intervals on the parameters estimates.
 - `solver`: The solver to use for the optimization, default is `LBFGS()`.
 - `opt`: The optimization options, a named tuple which is passed to 
-[Optim.jl](https://github.com/JuliaNLSolvers/Optim.jl). Default is has keywords:
+ [Optim.jl](https://github.com/JuliaNLSolvers/Optim.jl). Default has keywords:
     - `iterations = 6000`
     - `allow_f_increases = true`
     - `time_limit = 60`
     - `g_tol = 5e-8`
     - `show_warnings = false`.
 - `smallest_segment::Int=1`: The smallest segment size present in the histogram to consider 
-for the signal search.
+ for the signal search.
 - `force::Bool=true`: if true try to fit further epochs even when no signal is found.
 - `maxnts::Int=10`: The maximum number of new time splits to consider when adding a new epoch.
+ Higher is greedier.
+- `naive::Bool=true`: if true the expected weights are computed
+  using the closed form integral, otherwise using higher order transition
+  probabilities from SMC' theory (slower).
+- `order::Int=10`: maximum number of higher order corrections to use
+  when `naive` is false, i.e. number of intermediate recombination events
+  plus one.
+- `ndt::Int=800`: number of Legendre nodes to use when `naive` is false.
 """
 function FitOptions(Ltot, mu, rho;
     Tlow = 10, Tupp = 1e7,

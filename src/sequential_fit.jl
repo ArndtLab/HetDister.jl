@@ -133,17 +133,18 @@ function perturb_fit!(f::FitResult, fop::FitOptions, h::Histogram;
 end
 
 """
-    pre_fit(h::Histogram, nfits::Int, mu::Float64, Ltot::Number; require_convergence=true)
-    pre_fit!(fop::FitOptions, h::Histogram, nfits::Int, mu::Float64; require_convergence=true)
+    pre_fit(h::Histogram, nfits, mu, rho, order, Ltot; require_convergence=true)
+    pre_fit!(fop::FitOptions, h::Histogram, nfits; require_convergence=true)
 
 Preliminarily fit `h` with an approximate model of piece-wise constant 
 epochs for each number of epochs from 1 to `nfits`.
 
-If given the total length of the genome `Ltot` it initialize the fit 
+With the first signature it initializes the fit
 options to default. See [`FitOptions`](@ref) for how to specify them.
 Otherwise it modifies `fop` in place to adapt it to all the requested
 epochs.
-The mutation rate `mu` is assumed to be per base pairs per generation
+The mutation rate `mu` and recombination rate `rho` are
+assumed to be per base pairs per generation
 and the total length of the genome `Ltot` is in base pairs. Return a 
 vector of `FitResult`, one for each number of epochs,
 see also [`FitResult`](@ref).

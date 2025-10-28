@@ -1,34 +1,24 @@
 """
-    demoinfer(segments::AbstractVector{<:Integer}, epochrange::Int, mu::Float64, rho::Float64; kwargs...)
+    demoinfer(segments::AbstractVector{<:Integer}, epochs::Int, mu::Float64, rho::Float64; kwargs...)
 
 Make an histogram with IBS `segments` and infer demographic histories with
-piece-wise constant epochs where the number of epochs is smaller or equal 
-to `epochrange`.
+piece-wise constant epochs where the number of epochs is smaller or equal
+to `epochs`.
 
-Return a vector of `FitResult` of length smaller or equal to `epochrange`, 
+Return a vector of `FitResult` of length smaller or equal to `epochs`, 
 see [`FitResult`](@ref), `mu` and `rho` are respectively the mutation 
 and recombination rates per base pair per generation.
 
 # Optional Arguments
-- `fop::FitOptions = FitOptions(sum(segments))`: the fit options, see [`FitOptions`](@ref).
+- `fop::FitOptions = FitOptions(sum(segments), mu, rho)`: the fit options, see [`FitOptions`](@ref).
 - `lo::Int=1`: The lowest segment length to be considered in the histogram
 - `hi::Int=50_000_000`: The highest segment length to be considered in the histogram
-- `nbins::Int=200`: The number of bins to use in the histogram
-- `iters::Int=8`: The number of iterations to perform. Currently automatic check for convergence
-is not implemented.
-- `annealing=nothing`: correction is computed by simulating a genome of length `factor` times 
-the length of the input genome. At each iteration the factor is changed according to the 
-annealing function. It can be `Flat()`, `Lin()` or `Sq()`. It can be a user defined 
-function with signature `(L, it) -> factor` with `L` the genome length and `it` the
-iteration index. By default it is computed adaptively based on the input data, such 
-that the total expected volume of the histogram is 2e8.
-- `s::Int=1234`: The random seed for the random number generator, used to compute the correction.
-- `top::Int=1`: the number of fits at chain tail which is averaged for the final estimate.
-- `level::Float64=0.95`: the confidence level for the confidence intervals.
+- `nbins::Int=400`: The number of bins to use in the histogram
+- `iters::Int=10`: The number of iterations to perform. It might converge earlier
 """
 function demoinfer(segments::AbstractVector{<:Integer}, epochs::Int, mu::Float64, rho::Float64;
     fop::FitOptions = FitOptions(sum(segments), mu, rho),
-    lo::Int = 1, hi::Int = 50_000_000, nbins::Int = 200,
+    lo::Int = 1, hi::Int = 50_000_000, nbins::Int = 400,
     kwargs...
 )
     h = adapt_histogram(segments; lo, hi, nbins)
@@ -50,8 +40,7 @@ It is much lighter to distribute the histogram than the vector of segments
 which may also be streamed directly from disk into the histogram.
 """
 function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop::FitOptions;
-    iters::Int = 10,
-    level::Float64 = 0.95
+    iters::Int = 10
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
     @assert !isempty(h_obs.weights) "histogram is empty"
     @assert epochs > 0 "epochrange has to be strictly positive"

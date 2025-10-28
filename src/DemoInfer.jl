@@ -42,6 +42,14 @@ end
     compute_residuals(h::Histogram, mu::Float64, TN::Vector; naive=false)
 
 Compute the residuals between the observed and expected weights.
+## Optional arguments
+- `naive::Bool=false`: if true the expected weights are computed
+  using the closed form integral, otherwise using higher order transition
+  probabilities from SMC' theory.
+- `order::Int=10`: maximum number of higher order corrections to use
+  when `naive` is false, i.e. number of intermediate recombination events
+  plus one.
+- `ndt::Int=800`: number of Legendre nodes to use when `naive` is false.
 """
 function compute_residuals(h::Histogram, mu::Float64, TN::Vector; naive=false, order=10, ndt=800)
     if naive
