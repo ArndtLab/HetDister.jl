@@ -137,7 +137,7 @@ end
     @testset "exhaustive pre-fit $(length(TN)÷2) epochs,  mu $mu, rho $rho" for (mu,rho,TN) in itr
         ibs_segments = get_sim(TN, mu, rho)
         h = adapt_histogram(ibs_segments)
-        @test lasth.weights[end] .> 0
+        @test h.weights[end] .> 0
         Ltot = sum(ibs_segments)
         fits = pre_fit(h, 8, mu, rho, 10, 100, Ltot; require_convergence = false)
         nepochs = length(fits)
