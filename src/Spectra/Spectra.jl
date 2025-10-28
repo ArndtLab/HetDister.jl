@@ -13,7 +13,7 @@ using .SMCpIntegrals
 export 
     hid, hid_integral, firstorder, firstorderint, 
 	laplacekingman, laplacekingmanint, 
-	mldsmcp, IntegralArrays
+	mldsmcp, mldsmcp!, IntegralArrays
 
 # Computing
 

@@ -19,7 +19,7 @@ include("mle_optimization.jl")
 include("sequential_fit.jl")
 include("corrections.jl")
 
-export pre_fit, demoinfer, compare_models, correctestimate!,
+export pre_fit, pre_fit!, demoinfer, compare_models, correctestimate!,
     get_para, evd, sds, pop_sizes, durations,
     compute_residuals,
     adapt_histogram,

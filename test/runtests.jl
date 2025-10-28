@@ -75,7 +75,7 @@ end
     fop = DemoInfer.FitOptions(7, 1.0, 1.0; order = 2, ndt = 10)
     f = fit_model_epochs!(fop, h.edges[1], h.weights, Val(true))
     f = fit_model_epochs!(fop, h)
-    @test DemoInfer.Optim.converged(f.opt.optim_result)
+    @test DemoInfer.Optim.converged(f.opt.mle.optim_result)
     perturb_fit!(f, fop, h)
     DemoInfer.setnaive!(fop, false)
     fit_model_epochs!(fop, h)
@@ -97,15 +97,16 @@ end
     ibs_segments = get_sim(TN, mu, rho)
     append!(h, ibs_segments)
 
-    stat = pre_fit(h, 2, mu, rho, 10, 100, Ltot; require_convergence = false)
+    stat = pre_fit(h, 2, mu, rho, 10, 100, sum(ibs_segments); require_convergence = false)
     @test isassigned(stat, 1)
     stat = stat[1]
 
-    tsplit = deviant(h, mu, get_para(stat))
+    fop = FitOptions(sum(ibs_segments), mu, rho)
+    tsplit = deviant(h, get_para(stat), fop)
     @test length(tsplit) >= 1
-    tsplit = deviant(h, mu, get_para(stat); frame = 10)
+    tsplit = deviant(h, get_para(stat), fop; frame = 10)
     @test length(tsplit) >= 1
-    ts = timesplitter(h, mu, get_para(stat); frame = 10)
+    ts = timesplitter(h, get_para(stat), fop; frame = 10)
     @test length(ts) >= 2
 
     res = demoinfer(ibs_segments, length(TN)÷2, mu, rho;
@@ -119,9 +120,9 @@ end
     @test !any(best.opt.at_uboundary[2:end])
     fcor = correctestimate!(fop, best, h)
 
-    resid = compute_residuals(h, mu, TN)
+    resid = compute_residuals(h, mu, rho, TN)
     @test !any(isnan.(resid))
-    resid = compute_residuals(h, mu, TN; naive=true)
+    resid = compute_residuals(h, mu, rho, TN; naive=true)
     @test !any(isnan.(resid))
     ws = integral_ws(h.edges[1], mu, TN)
     @test !any(isnan.(ws))
@@ -144,7 +145,7 @@ end
         fits = pre_fit!(fop, h, 8)
         nepochs = length(fits)
         bestll = argmax(i->fits[i].lp, 1:nepochs)
-        residuals = compute_residuals(h, mu, get_para(fits[bestll]); naive = true)
+        residuals = compute_residuals(h, mu, rho, get_para(fits[bestll]); naive = true)
         @test abs(mean(residuals)) < 3/sqrt(length(residuals))
         @test abs(std(residuals) - 1) < 3/sqrt(length(residuals))
     end

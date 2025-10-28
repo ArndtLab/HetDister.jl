@@ -2,20 +2,19 @@ function tcondr(r::Number, mu::Number)
     return [1 / (mu * r), 1 / (mu * (25r)^(1/1.3))]
 end
 
-function deviant(h::Histogram, mu::Float64, prev_para::Vector{T};
+function deviant(h::Histogram, prev_para::Vector{T}, fop::FitOptions;
     frame::Number = 20,
     pos::Bool = true,
-    threshold::Float64 = 0.,
-    smallest_segment::Int = 1
+    threshold::Float64 = 0.
 ) where {T <: Number}
 
     # find approximate time of positive (negative) deviation from previous fit
     r = midpoints(h.edges[1])
-    residuals = compute_residuals(h, mu, prev_para)
+    residuals = compute_residuals(h, fop.mu, fop.rho, prev_para, naive = true)
     if !pos residuals = -residuals end
 
     divide = zeros(Int, length(residuals))
-    divide[(residuals .> threshold) .& (r .>= smallest_segment)] .= 1
+    divide[(residuals .> threshold) .& (r .>= fop.smallest_segment)] .= 1
     divide[residuals .< threshold] .= 0
     j = 1
     while j < length(divide)
@@ -31,7 +30,7 @@ function deviant(h::Histogram, mu::Float64, prev_para::Vector{T};
     found = zeros(1)
     for j in eachindex(divide[1:end-1])
         if divide[j] != divide[j+1]
-            t = tcondr(r[j], mu)
+            t = tcondr(r[j], fop.mu)
             @debug "identified deviation " r[j]
             append!(found, t)
         end
@@ -39,35 +38,34 @@ function deviant(h::Histogram, mu::Float64, prev_para::Vector{T};
     return found
 end
 
-function timesplitter(h::Histogram, mu::Float64, prev_para::Vector{T};
+function timesplitter(h::Histogram, prev_para::Vector{T}, fop::FitOptions;
     frame::Number = 20,
-    threshold::Float64 = 0.,
-    smallest_segment::Int = 1
+    threshold::Float64 = 0.
 ) where {T <: Number}
-    t1 = deviant(h, mu, prev_para; 
-        frame, pos = true, threshold, smallest_segment
+    t1 = deviant(h, prev_para, fop; 
+        frame, pos = true, threshold
     )
     if iszero(t1)
-        t1 = deviant(h, mu, prev_para;
-            frame=frame/2, pos = true, threshold, smallest_segment
+        t1 = deviant(h, prev_para, fop;
+            frame=frame/2, pos = true, threshold
         )
     end
     if iszero(t1)
-        t1 = deviant(h, mu, prev_para;
-            frame=frame/4, pos = true, threshold, smallest_segment
+        t1 = deviant(h, prev_para, fop;
+            frame=frame/4, pos = true, threshold
         )
     end
-    t2 = deviant(h, mu, prev_para;
-        frame, pos = false, threshold, smallest_segment
+    t2 = deviant(h, prev_para, fop;
+        frame, pos = false, threshold
     )
     if iszero(t2)
-        t2 = deviant(h, mu, prev_para;
-            frame=frame/2, pos = false, threshold, smallest_segment
+        t2 = deviant(h, prev_para, fop;
+            frame=frame/2, pos = false, threshold
         )
     end
     if iszero(t2)
-        t2 = deviant(h, mu, prev_para;
-            frame=frame/4, pos = false, threshold, smallest_segment
+        t2 = deviant(h, prev_para, fop;
+            frame=frame/4, pos = false, threshold
         )
     end
     @debug "deviant results " t1 t2
@@ -168,7 +166,7 @@ function pre_fit!(fop::FitOptions, h::Histogram{T,1,E}, nfits::Int;
         if i == 1
             f = fit_model_epochs!(fop, h)
         else
-            ts = timesplitter(h, fop.mu, fits[i-1].para; fop.smallest_segment)
+            ts = timesplitter(h, fits[i-1].para, fop)
             if iszero(ts)
                 @info "pre_fit: no split found, epoch $i"
                 if !fop.force
