@@ -103,7 +103,7 @@ function epochfinder!(init::Vector{T}, N0, t, fop::FitOptions) where {T <: Numbe
     return init
 end
 
-function perturb_fit!(f::FitResult, fop::FitOptions, h::Histogram, mu::Float64;
+function perturb_fit!(f::FitResult, fop::FitOptions, h::Histogram;
     by_pass::Bool = false
 )
     f_ = deepcopy(f)
@@ -116,7 +116,7 @@ function perturb_fit!(f::FitResult, fop::FitOptions, h::Histogram, mu::Float64;
             setinit!(fop, f.para)
             set_perturb!(fop, f)
             setinit!(fop, pinit)
-            f = fit_model_epochs!(fop, h, mu)
+            f = fit_model_epochs!(fop, h)
             if !isinf(evd(f)) & f.converged
                 if by_pass
                     break
@@ -148,33 +148,34 @@ and the total length of the genome `Ltot` is in base pairs. Return a
 vector of `FitResult`, one for each number of epochs,
 see also [`FitResult`](@ref).
 """
-function pre_fit(h::Histogram{T,1,E}, nfits::Int, mu::Float64, Ltot::Number; 
+function pre_fit(h::Histogram{T,1,E}, nfits::Int, mu::Float64, 
+    rho::Float64, order::Int, ndt::Int, Ltot::Number; 
     require_convergence::Bool = true
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
-    fop = FitOptions(Ltot)
-    return pre_fit!(fop, h, nfits, mu; require_convergence)
+    fop = FitOptions(Ltot, mu, rho; order, ndt)
+    return pre_fit!(fop, h, nfits; require_convergence)
 end
 
-function pre_fit!(fop::FitOptions, h::Histogram{T,1,E}, nfits::Int, mu::Float64;
+function pre_fit!(fop::FitOptions, h::Histogram{T,1,E}, nfits::Int;
     require_convergence::Bool = true
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
     fits = FitResult[]
-    N0 = sum(h.weights) / fop.Ltot / 4mu
+    N0 = sum(h.weights) / fop.Ltot / 4fop.mu
     @assert nfits > 0 "number of fits has to be strictly positive"
     for i in 1:nfits
         setnepochs!(fop, i)
         if i == 1
-            f = fit_model_epochs!(fop, h, mu)
+            f = fit_model_epochs!(fop, h)
         else
-            ts = timesplitter(h, mu, fits[i-1].para; fop.smallest_segment)
+            ts = timesplitter(h, fop.mu, fits[i-1].para; fop.smallest_segment)
             if iszero(ts)
                 @info "pre_fit: no split found, epoch $i"
                 if !fop.force
                     return fits
                 else
                     r = midpoints(h.edges[1])
-                    append!(ts, tcondr(rand(r), mu))
-                    append!(ts, tcondr(rand(r), mu))
+                    append!(ts, tcondr(rand(r), fop.mu))
+                    append!(ts, tcondr(rand(r), fop.mu))
                 end
             end
             filter!(t->t!=0, ts)
@@ -191,14 +192,14 @@ function pre_fit!(fop::FitOptions, h::Histogram{T,1,E}, nfits::Int, mu::Float64;
                 init = get_para(fits[i-1])
                 epochfinder!(init, N0, ts[j], fops[j])
                 setinit!(fops[j], init)
-                f = fit_model_epochs!(fops[j], h, mu)
-                f = perturb_fit!(f, fops[j], h, mu; by_pass=true)
+                f = fit_model_epochs!(fops[j], h)
+                # f = perturb_fit!(f, fops[j], h; by_pass=true)
                 fs[j] = f
             end
             lps = map(f->f.lp, fs)
             f = fs[argmax(lps)]
             @debug "best " ts[argmax(lps)] f.lp f.converged
-            f = perturb_fit!(f, fop, h, mu)
+            f = perturb_fit!(f, fop, h)
             if require_convergence && !f.converged
                 @info "pre_fit: not converged, epoch $i"
                 return fits
