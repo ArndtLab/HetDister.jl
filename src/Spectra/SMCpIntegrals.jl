@@ -156,7 +156,7 @@ function IntegralArrays(order::Int, ndt::Int, nrs::Int, chunk, levels = 1)
 end
 
 function prordn!(bag::IntegralArrays,
-    rs::Vector{<:Real}, edges::Vector{<:Real}, rate::Real,
+    rs::AbstractVector{<:Real}, edges::AbstractVector{<:Real}, rate::Real,
     TN::AbstractVector{<:Real}
 )
     res_ = get_tmp(bag.res, eltype(TN))
@@ -182,7 +182,7 @@ function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
     temp::AbstractMatrix{<:Real}, qtt::AbstractMatrix{<:Real},
     zs::AbstractVector{<:Real}, wt::AbstractVector{<:Real},
     ts::AbstractVector{<:Real}, dts::AbstractVector{<:Real},
-    rs::Vector{<:Real}, edges::Vector{<:Real}, rate::Real, order::Int, n_dt::Int, nrs::Int,
+    rs::AbstractVector{<:Real}, edges::AbstractVector{<:Real}, rate::Real, order::Int, n_dt::Int, nrs::Int,
     TN::AbstractVector{<:Real}
 )
     @assert length(rs) == nrs
@@ -192,7 +192,7 @@ function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
     temp .= 0
 
     @threads for i in 1:nrs
-        for j in 1:n_dt
+        @inbounds for j in 1:n_dt
             t, dt = tolegendre(zs[j], TN)
             ts[j] = t
             dts[j] = dt
@@ -203,7 +203,7 @@ function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
         res[i,1] = firstorder(rs[i], rate, TN)
     end
     @threads for i in 1:n_dt
-        for j in 1:n_dt
+        @inbounds for j in 1:n_dt
             w = i == j ? 1. : wt[j] * dts[j]
             p = max(ptt(ts[i], ts[j], TN), 0.)
             qtt[j,i] = p * w
@@ -212,17 +212,17 @@ function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
     for o in 1:order-1
         @threads for i in 1:nrs
             # transition t integral
-            for j in 1:n_dt
+            @inbounds for j in 1:n_dt
                 s = 0.
                 for k in 1:n_dt
-                    s += jprt[k,i] * qtt[k,j]
+                    @fastmath s += jprt[k,i] * qtt[k,j]
                 end
                 temp[i,j] = s
             end
         end # I am modifying jprt in the end, so need to finish all temp first
         @threads for i in 1:nrs
             s2 = 0.
-            for j in 1:n_dt
+            @inbounds for j in 1:n_dt
                 # convolution r integral
                 s = 0.
                 for k in 1:i-1
@@ -239,7 +239,7 @@ function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
                 jprt[j,i] = s
                 # terminal t integral part
                 # 2t factor from p(r|t) here does not simplify
-                s2 += jprt[j,i] * 2 * ts[j] * wt[j] * dts[j]
+                s2 += s * 2 * ts[j] * wt[j] * dts[j]
             end
             res[i,o+1] = s2
         end

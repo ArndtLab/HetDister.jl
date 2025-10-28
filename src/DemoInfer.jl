@@ -19,11 +19,12 @@ include("mle_optimization.jl")
 include("sequential_fit.jl")
 include("corrections.jl")
 
-export pre_fit, pre_fit!, demoinfer, compare_models,
+export pre_fit, demoinfer, compare_models, correctestimate!,
     get_para, evd, sds, pop_sizes, durations,
     compute_residuals,
     adapt_histogram,
-    FitResult, FitOptions
+    FitResult, FitOptions,
+    laplacekingman, mldsmcp
 
 
 function integral_ws(edges::AbstractVector{<:Real}, mu::Float64, TN::Vector)
@@ -39,7 +40,7 @@ function integral_ws(edges::AbstractVector{<:Real}, mu::Float64, TN::Vector)
 end
 
 """
-    compute_residuals(h::Histogram, mu::Float64, TN::Vector; naive=false)
+    compute_residuals(h::Histogram, mu, rho, TN::Vector; naive=false)
 
 Compute the residuals between the observed and expected weights.
 ## Optional arguments
@@ -51,16 +52,18 @@ Compute the residuals between the observed and expected weights.
   plus one.
 - `ndt::Int=800`: number of Legendre nodes to use when `naive` is false.
 """
-function compute_residuals(h::Histogram, mu::Float64, TN::Vector; naive=false, order=10, ndt=800)
+function compute_residuals(h::Histogram, mu::Float64, rho::Float64, TN::Vector; 
+    naive=false, order=10, ndt=800
+)
     if naive
         w_th = integral_ws(h.edges[1], mu, TN)
     else
         rs = midpoints(h.edges[1])
         bag = IntegralArrays(order, ndt, length(rs), Val{length(TN)})
-        mldsmcp!(bag, 1:bag.order, rs, h.edges[1].edges, mu, 0.0, TN)
+        mldsmcp!(bag, 1:bag.order, rs, h.edges[1].edges, mu, rho, TN)
         w_th = get_tmp(bag.ys, eltype(TN)) .* diff(h.edges[1])
     end
-    residuals = (h.weights - w_th) ./ sqrt.(w_th)
+    residuals = (h.weights .- w_th) ./ sqrt.(w_th)
     @assert all(isfinite.(residuals))
     return residuals
 end
@@ -117,32 +120,32 @@ function adapt_histogram(segments::AbstractVector{<:Integer}; lo::Int=1, hi::Int
         append!(h_obs, segments)
         l = findlast(h_obs.weights .> 0)
     end
-    # edges = h_obs.edges[1].edges
-    # T = eltype(edges)
-    # nedges = T[]
-    # weights = h_obs.weights
-    # counter = 0
-    # for i in eachindex(weights)
-    #     if i == 1
-    #         push!(nedges, edges[i])
-    #     elseif weights[i] == 0
-    #         # record row of zeros
-    #         counter += 1
-    #     elseif counter > 0
-    #         # enter here only when is not zero following a zero
-    #         hi = edges[i+1]
-    #         lo = edges[i-counter-1]
-    #         mid = floor(sqrt(lo * hi))
-    #         push!(nedges, mid)
-    #         counter = 0
-    #     elseif counter == 0
-    #         # enter here when non zero following non zero
-    #         push!(nedges, edges[i])
-    #     end
-    # end
-    # push!(nedges, edges[end])
-    # h_obs = Histogram(LogEdgeVector(nedges))
-    # append!(h_obs, segments)
+    edges = h_obs.edges[1].edges
+    T = eltype(edges)
+    nedges = T[]
+    weights = h_obs.weights
+    counter = 0
+    for i in eachindex(weights)
+        if i == 1
+            push!(nedges, edges[i])
+        elseif weights[i] == 0
+            # record row of zeros
+            counter += 1
+        elseif counter > 0
+            # enter here only when is not zero following a zero
+            hi = edges[i+1]
+            lo = edges[i-counter-1]
+            mid = floor(sqrt(lo * hi))
+            push!(nedges, mid)
+            counter = 0
+        elseif counter == 0
+            # enter here when non zero following non zero
+            push!(nedges, edges[i])
+        end
+    end
+    push!(nedges, edges[end])
+    h_obs = Histogram(LogEdgeVector(nedges))
+    append!(h_obs, segments)
     return h_obs
 end
 

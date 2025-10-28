@@ -107,7 +107,6 @@ end
     ed = collect(1:101)
     mu = 1e-8
     rho = 1e-8
-    bag = IntegralArrays(10, 100, length(rs), length(TN), 3)
-    mldsmcp!(bag, 1:10, rs, ed, mu, rho, TN)
-    @test all(get_tmp(bag.ys, eltype(TN)).> 0)
+    ys = mldsmcp(rs, ed, mu, rho, TN)
+    @test all(ys .> 0)
 end

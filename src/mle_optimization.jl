@@ -119,6 +119,10 @@ function getFitResult(mle, options::FitOptions, counts)
     lp = -minimum(mle.optim_result)
     
     hess = getHessian(mle)
+    return getFitResult(hess, para, lp, mle, options, counts)
+end
+
+function getFitResult(hess, para, lp, mle, options::FitOptions, counts)
     eigen_problem = eigen(hess)
     lambdas = eigen_problem.values
 
@@ -165,8 +169,8 @@ function getFitResult(mle, options::FitOptions, counts)
         Optim.converged(mle.optim_result) && manual_flag,
         lp,
         logevidence,
-        (; 
-            mle.optim_result,
+        (;
+            mle,
             at_any_boundary = any(at_uboundary) || any(at_lboundary), 
             at_uboundary, at_lboundary,
             options.low, options.upp, options.init,

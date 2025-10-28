@@ -90,6 +90,20 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop::FitOptions;
     )
 end
 
+function correctestimate!(fop::FitOptions, fit::FitResult, h::Histogram)
+    rs = midpoints(h.edges[1])
+    bag = IntegralArrays(fop.order, fop.ndt, length(rs), Val{length(fit.para)}, 3)
+
+    setnepochs!(fop, length(fit.para)÷2)
+    setinit!(fop, fit.para)
+
+    he = ForwardDiff.hessian(
+        tn -> DemoInfer.llsmcp!(bag, rs, h.edges[1].edges, h.weights, fop.mu, fop.rho, tn),
+        get_para(fit)
+    )
+    return getFitResult(he, fit.para, fit.lp, fit.opt.mle, fop, h.weights)
+end
+
 """
     compare_models(models)
 

@@ -97,7 +97,7 @@ end
     ibs_segments = get_sim(TN, mu, rho)
     append!(h, ibs_segments)
 
-    stat = pre_fit!(FitOptions(TN[1], mu, rho), h, 2)
+    stat = pre_fit(h, 2, mu, rho, 10, 100, Ltot; require_convergence = false)
     @test isassigned(stat, 1)
     stat = stat[1]
 
@@ -117,6 +117,7 @@ end
     @test !isnothing(best)
     @test !any(best.opt.at_lboundary)
     @test !any(best.opt.at_uboundary[2:end])
+    fcor = correctestimate!(fop, best, h)
 
     resid = compute_residuals(h, mu, TN)
     @test !any(isnan.(resid))
@@ -139,7 +140,8 @@ end
         h = adapt_histogram(ibs_segments)
         @test h.weights[end] .> 0
         Ltot = sum(ibs_segments)
-        fits = pre_fit(h, 8, mu, rho, 10, 100, Ltot; require_convergence = false)
+        fop = FitOptions(Ltot, mu, rho; maxnts = 8)
+        fits = pre_fit!(fop, h, 8)
         nepochs = length(fits)
         bestll = argmax(i->fits[i].lp, 1:nepochs)
         residuals = compute_residuals(h, mu, get_para(fits[bestll]); naive = true)
