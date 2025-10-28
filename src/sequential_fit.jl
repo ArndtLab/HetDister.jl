@@ -10,7 +10,7 @@ function deviant(h::Histogram, prev_para::Vector{T}, fop::FitOptions;
 
     # find approximate time of positive (negative) deviation from previous fit
     r = midpoints(h.edges[1])
-    residuals = compute_residuals(h, fop.mu, fop.rho, prev_para, naive = true)
+    residuals = compute_residuals(h, fop.mu, fop.rho, prev_para, naive = isnaive(fop))
     if !pos residuals = -residuals end
 
     divide = zeros(Int, length(residuals))
