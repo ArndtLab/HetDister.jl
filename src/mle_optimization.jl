@@ -1,40 +1,18 @@
-# helper functions
-
-function correct_name(s)
-    m = match(r"^TN\[(\d+)\]", s)
-    if !isnothing(m)
-        i = parse(Int, m.captures[1])
-        if i == 1
-            return "L"
-        elseif iseven(i)
-            return "N" * string((i-2) ÷ 2)
-        else
-            return "T" * string((i-1) ÷ 2)
-        end
-    end
-    m = match(r"^N\[(\d+)\]", s)
-    if !isnothing(m)
-        return  "N" *string(parse(Int, m.captures[1]) - 1)
-    end
-    m = match(r"^T\[(\d+)\]", s)
-    if !isnothing(m)
-        return  "T" * m.captures[1]
-    end
-    return s
-end
-
 function getHessian(m::Turing.Optimisation.ModeResult; kwargs...)
     return Turing.Optimisation.StatsBase.informationmatrix(m; kwargs...)
 end
 
 # models
 
-@model function model_epochs(edges::AbstractVector{<:Integer}, counts::AbstractVector{<:Integer}, mu::Float64, TNdists::Vector{<:Distribution})
+@model function model_epochs(edges::AbstractVector{<:Integer}, 
+    counts::AbstractVector{<:Integer}, mu::Float64,
+    TNdists::Vector{<:Distribution}
+)
     TN ~ arraydist(TNdists)
     a = 0.5
-    last_hid_I = hid_integral(TN, mu, edges[1] - a)
+    last_hid_I = laplacekingmanint(edges[1] - a, mu, TN)
     for i in eachindex(counts)
-        @inbounds this_hid_I = hid_integral(TN, mu, edges[i+1] - a)
+        @inbounds this_hid_I = laplacekingmanint(edges[i+1] - a, mu, TN)
         m = this_hid_I - last_hid_I
         last_hid_I = this_hid_I
         if (m < 0) || isnan(m)
@@ -49,33 +27,98 @@ end
     end
 end
 
+@model function modelsmcp!(dc::IntegralArrays, rs::AbstractVector{<:Real}, 
+    edges::AbstractVector{<:Integer}, counts::AbstractVector{<:Integer},
+    mu::Float64, rho::Float64, TNdists::Vector{<:Distribution}
+)
+    TN ~ arraydist(TNdists)
+    mldsmcp!(dc, 1:dc.order, rs, edges, mu, rho, TN)
+    m = get_tmp(dc.ys, eltype(TN))
+    m .*= diff(edges)
+    for i in eachindex(counts)
+        if (m[i] < 0) || isnan(m[i])
+            # this happens when evaluating the model
+            # after optimization, in the unconstrained
+            # space, using Bijectors.
+            # I could not find a mwe, (TODO: find one)
+            # probably out of domain, apply a penalty
+            m[i] = 0
+        end
+        @inbounds counts[i] ~ Poisson(m[i])
+    end
+end
+
+function llsmcp!(dc::IntegralArrays, rs::AbstractVector{<:Real}, 
+    edges::AbstractVector{<:Integer}, counts::AbstractVector{<:Integer},
+    mu::Float64, rho::Float64, TN::AbstractVector{<:Real}
+)
+    mldsmcp!(dc, 1:dc.order, rs, edges, mu, rho, TN)
+    m = get_tmp(dc.ys, eltype(TN))
+    m .*= diff(edges)
+    ll = 0
+    for i in eachindex(counts)
+        if (m[i] < 0) || isnan(m[i])
+            # this happens when evaluating the model
+            # after optimization, in the unconstrained
+            # space, using Bijectors.
+            # I could not find a mwe, (TODO: find one)
+            # probably out of domain, apply a penalty
+            m[i] = 0
+        end
+        @inbounds ll += logpdf(Poisson(m[i]),counts[i])
+    end
+    return -ll
+end
+
 # --- fitting
 
-function fit_model_epochs!(options::FitOptions, h::Histogram{T,1,E}, mu::Float64) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
-    fit_model_epochs!(options, h.edges[1], h.weights, mu)
+function fit_model_epochs!(options::FitOptions, h::Histogram{T,1,E}
+) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
+    fit_model_epochs!(options, h.edges[1], h.weights, Val(isnaive(options)))
 end
 
 
 function fit_model_epochs!(
-    options::FitOptions, edges::AbstractVector{<:Integer}, counts::AbstractVector{<:Integer}, mu::Float64
+    options::FitOptions, edges::AbstractVector{<:Integer}, counts::AbstractVector{<:Integer}, 
+    ::Val{true}
 )
 
     # get a good initial guess
-    iszero(options.init) && setinit!(options, counts, mu)
+    iszero(options.init) && setinit!(options, counts)
 
     # run the optimization
-    model = model_epochs(edges, counts, mu, options.prior)
-
+    model = model_epochs(edges, counts, options.mu, options.prior)
     logger = ConsoleLogger(stdout, Logging.Error)
     mle = with_logger(logger) do
         Optim.optimize(model, MLE(), options.init, options.solver, options.opt)
     end
+    return getFitResult(mle, options, counts)
+end
 
+function fit_model_epochs!(
+    options::FitOptions, edges::AbstractVector{<:Integer}, counts::AbstractVector{<:Integer}, 
+    ::Val{false}
+)
+
+    # get a good initial guess
+    iszero(options.init) && setinit!(options, counts)
+
+    # run the optimization
+    rs = midpoints(edges)
+    dc = IntegralArrays(options.order, options.ndt, length(rs), Val{length(options.init)}, 3)
+    model = modelsmcp!(dc, rs, edges, counts, options.mu, options.rho, options.prior)
+    logger = ConsoleLogger(stdout, Logging.Error)
+    mle = with_logger(logger) do
+        Optim.optimize(model, MLE(), options.init, options.solver, options.opt)
+    end
+    return getFitResult(mle, options, counts)
+end
+
+function getFitResult(mle, options::FitOptions, counts)
     para = vec(mle.values)
-    para_name = DemoInfer.correct_name.(string.(names(mle.values, 1)))
     lp = -minimum(mle.optim_result)
     
-    hess = DemoInfer.getHessian(mle)
+    hess = getHessian(mle)
     eigen_problem = eigen(hess)
     lambdas = eigen_problem.values
 
@@ -86,7 +129,7 @@ function fit_model_epochs!(
     p = fill(1, length(para))
     ci_low = fill(-Inf, length(para))
     ci_high = fill(Inf, length(para))
-    evidence = -Inf
+    logevidence = -Inf
     manual_flag = true
     if isreal(lambdas)
         lambdas = real.(lambdas)
@@ -107,22 +150,21 @@ function fit_model_epochs!(
         ci_high = para .+ q .* stderrors
     
         # assuming uniform prior
-        evidence = lp + sum(log.(1.0 ./ (options.upp - options.low)) .+ 0.5*log(2*pi)) - 
+        logevidence = lp + sum(log.(1.0 ./ (options.upp - options.low)) .+ 0.5*log(2*pi)) - 
             0.5 * sum(log.(lambdas))
     end
 
     FitResult(
         options.nepochs,
         length(counts),
-        mu, 
+        options.mu,
+        options.rho,
         para,
         stderrors,
-        para_name,
-        para,
         summary(mle.optim_result),
         Optim.converged(mle.optim_result) && manual_flag,
         lp,
-        evidence,
+        logevidence,
         (; 
             mle.optim_result,
             at_any_boundary = any(at_uboundary) || any(at_lboundary), 
