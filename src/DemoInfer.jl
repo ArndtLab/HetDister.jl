@@ -1,38 +1,37 @@
 module DemoInfer
 
 using StatsBase, Distributions, HistogramBinnings
-using PopSim
 using LinearAlgebra, Statistics
 using Turing, Optim
 using StatsAPI
 using Printf
 using DynamicPPL, ForwardDiff, Accessors
-using MLDs
 using Random
 using Base.Threads
 using Logging
+using PreallocationTools
+
+include("Spectra/Spectra.jl")
+using .Spectra
 
 include("utils.jl")
 include("mle_optimization.jl")
 include("sequential_fit.jl")
-include("simulate.jl")
 include("corrections.jl")
 
-export get_sim!,
-    pre_fit, pre_fit!, demoinfer, compare_models,
-    get_para, evd, sds, pop_sizes, durations, get_chain,
+export pre_fit, pre_fit!, demoinfer, compare_models,
+    get_para, evd, sds, pop_sizes, durations,
     compute_residuals,
     adapt_histogram,
-    FitResult, FitOptions,
-    Flat, Lin, Sq
+    FitResult, FitOptions
 
 
 function integral_ws(edges::AbstractVector{<:Real}, mu::Float64, TN::Vector)
     a = 0.5
-    last_hid_I = hid_integral(TN, mu, edges[1] - a)
+    last_hid_I = laplacekingmanint(edges[1] - a, mu, TN)
     weights = Vector{Float64}(undef, length(edges)-1)
-    for i in eachindex(edges[1:end-1])
-        @inbounds this_hid_I = hid_integral(TN, mu, edges[i+1] - a)
+    for i in eachindex(weights)
+        @inbounds this_hid_I = laplacekingmanint(edges[i+1] - a, mu, TN)
         weights[i] = this_hid_I - last_hid_I
         last_hid_I = this_hid_I
     end
@@ -40,12 +39,19 @@ function integral_ws(edges::AbstractVector{<:Real}, mu::Float64, TN::Vector)
 end
 
 """
-    compute_residuals(h::Histogram, mu::Float64, TN::Vector)
+    compute_residuals(h::Histogram, mu::Float64, TN::Vector; naive=false)
 
 Compute the residuals between the observed and expected weights.
 """
-function compute_residuals(h::Histogram, mu::Float64, TN::Vector)
-    w_th = integral_ws(h.edges[1], mu, TN)
+function compute_residuals(h::Histogram, mu::Float64, TN::Vector; naive=false, order=10, ndt=800)
+    if naive
+        w_th = integral_ws(h.edges[1], mu, TN)
+    else
+        rs = midpoints(h.edges[1])
+        bag = IntegralArrays(order, ndt, length(rs), Val{length(TN)})
+        mldsmcp!(bag, 1:bag.order, rs, h.edges[1].edges, mu, 0.0, TN)
+        w_th = get_tmp(bag.ys, eltype(TN)) .* diff(h.edges[1])
+    end
     residuals = (h.weights - w_th) ./ sqrt.(w_th)
     @assert all(isfinite.(residuals))
     return residuals
@@ -67,6 +73,23 @@ function compute_residuals(h1::Histogram, h2::Histogram; fc1 = 1.0, fc2 = 1.0)
     return residuals
 end
 
+function CustomEdgeVector(; lo = 1, hi = 10, nbins::Integer)
+    @assert (lo > 0) && (hi > 0) && (nbins > 0) && (hi > lo)
+    lo = floor(Int, lo)
+    hi = ceil(Int, hi)
+    edges = collect(logrange(lo, hi+1, length = nbins+1))
+    for i in 2:nbins+1
+        nw = ceil(Int, edges[i])
+        delta = nw - edges[i]
+        edges[i:end] .+= delta
+    end
+    edges = unique(round.(Int, edges))
+    edges[1] = lo
+    edges[end] = hi + 1
+    @assert length(edges) == nbins + 1
+    LogEdgeVector(edges)
+end
+
 """
     adapt_histogram(segments::AbstractVector{<:Integer}; lo::Int=1, hi::Int=50_000_000, nbins::Int=200)
 
@@ -77,41 +100,41 @@ The upper limit is adapted to the maximum observed length, so default value
 is on purpose high.
 """
 function adapt_histogram(segments::AbstractVector{<:Integer}; lo::Int=1, hi::Int=50_000_000, nbins::Int=200)
-    h_obs = Histogram(LogEdgeVector(;lo, hi, nbins))
+    h_obs = Histogram(CustomEdgeVector(;lo, hi, nbins))
     append!(h_obs, segments)
     l = findlast(h_obs.weights .> 0)
     while h_obs.edges[1].edges[l+1] + 1 < hi
         hi = h_obs.edges[1].edges[l+1]
-        h_obs = Histogram(LogEdgeVector(;lo, hi, nbins))
+        h_obs = Histogram(CustomEdgeVector(;lo, hi, nbins))
         append!(h_obs, segments)
         l = findlast(h_obs.weights .> 0)
     end
-    edges = h_obs.edges[1].edges
-    T = eltype(edges)
-    nedges = T[]
-    weights = h_obs.weights
-    counter = 0
-    for i in eachindex(weights)
-        if i == 1
-            push!(nedges, edges[i])
-        elseif weights[i] == 0
-            # record row of zeros
-            counter += 1
-        elseif counter > 0
-            # enter here only when is not zero following a zero
-            hi = edges[i+1]
-            lo = edges[i-counter-1]
-            mid = floor(sqrt(lo * hi))
-            push!(nedges, mid)
-            counter = 0
-        elseif counter == 0
-            # enter here when non zero following non zero
-            push!(nedges, edges[i])
-        end
-    end
-    push!(nedges, edges[end])
-    h_obs = Histogram(LogEdgeVector(nedges))
-    append!(h_obs, segments)
+    # edges = h_obs.edges[1].edges
+    # T = eltype(edges)
+    # nedges = T[]
+    # weights = h_obs.weights
+    # counter = 0
+    # for i in eachindex(weights)
+    #     if i == 1
+    #         push!(nedges, edges[i])
+    #     elseif weights[i] == 0
+    #         # record row of zeros
+    #         counter += 1
+    #     elseif counter > 0
+    #         # enter here only when is not zero following a zero
+    #         hi = edges[i+1]
+    #         lo = edges[i-counter-1]
+    #         mid = floor(sqrt(lo * hi))
+    #         push!(nedges, mid)
+    #         counter = 0
+    #     elseif counter == 0
+    #         # enter here when non zero following non zero
+    #         push!(nedges, edges[i])
+    #     end
+    # end
+    # push!(nedges, edges[end])
+    # h_obs = Histogram(LogEdgeVector(nedges))
+    # append!(h_obs, segments)
     return h_obs
 end
 
