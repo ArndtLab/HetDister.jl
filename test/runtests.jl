@@ -142,7 +142,7 @@ end
         @test h.weights[end] .> 0
         Ltot = sum(ibs_segments)
         fop = FitOptions(Ltot, mu, rho; maxnts = 8)
-        fits = pre_fit!(fop, h, 8)
+        fits = pre_fit!(fop, h, 8; require_convergence = false)
         nepochs = length(fits)
         bestll = argmax(i->fits[i].lp, 1:nepochs)
         residuals = compute_residuals(h, mu, rho, get_para(fits[bestll]); naive = true)
@@ -163,7 +163,7 @@ end
         @test best.nepochs == 5
         m = 5
         for i in 1:length(res.chain)
-            p = get_para(compare_models(res.chain[i][m]))
+            p = get_para(res.chain[i][m])
             wth = integral_ws(h.edges[1], mu, p)
             ws = wth .+ res.corrections[i]
             ws = max.(0,ws)
