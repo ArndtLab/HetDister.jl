@@ -1,5 +1,3 @@
-<img src="https://ArndtLab.github.io/HetDister.jl/blob/main/docs/src/assets/logo.png?raw=true" width="200">
-
 # HetDister.jl
 
 [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://ArndtLab.github.io/HetDister.jl/stable/)
