@@ -1,6 +1,6 @@
-using DemoInfer.Spectra
-using DemoInfer.Spectra.PreallocationTools
-using DemoInfer.Spectra.SMCpIntegrals: Nt, cumcr, pt, ptt
+using HetDister.Spectra
+using HetDister.Spectra.PreallocationTools
+using HetDister.Spectra.SMCpIntegrals: Nt, cumcr, pt, ptt
 using Test
 
 include("mathematica-derived.jl")

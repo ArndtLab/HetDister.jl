@@ -1,14 +1,14 @@
-using DemoInfer
+using HetDister
 using Documenter
 
-DocMeta.setdocmeta!(DemoInfer, :DocTestSetup, :(using DemoInfer); recursive=true)
+DocMeta.setdocmeta!(HetDister, :DocTestSetup, :(using HetDister); recursive=true)
 
 makedocs(;
-    modules=[DemoInfer],
+    modules=[HetDister],
     authors="Tommaso Stentella <stentell@molgen.mpg.de> and contributors",
-    sitename="DemoInfer.jl",
+    sitename="HetDister.jl",
     format=Documenter.HTML(;
-        canonical="https://ArndtLab.github.io/DemoInfer.jl",
+        canonical="https://ArndtLab.github.io/HetDister.jl",
         edit_link="main",
         assets=String[],
     ),
@@ -20,6 +20,6 @@ makedocs(;
 )
 
 deploydocs(;
-    repo="github.com/ArndtLab/DemoInfer.jl",
+    repo="github.com/ArndtLab/HetDister.jl",
     devbranch="main",
 )

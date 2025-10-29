@@ -1,10 +1,10 @@
 ```@meta
-CurrentModule = DemoInfer
+CurrentModule = HetDister
 ```
 
-# DemoInfer
+# HetDister
 
-Documentation for [DemoInfer](https://github.com/ArndtLab/DemoInfer.jl).
+Documentation for [HetDister](https://github.com/ArndtLab/HetDister.jl).
 
 Module to run demographic inference on diploid genomes, under the assumption of panmixia (i.e. the inferred effective population size is half the inverse of the observed mean coalescence rate).
 See [this](https://github.com/ArndtLab/DemoInferDemo) repo for a demo of how to use it.
@@ -47,5 +47,5 @@ The output is a vector of parameters in the form `[L, N0, T1, N1, T2, N2, ...]` 
 ```
 
 ```@autodocs
-Modules = [DemoInfer]
+Modules = [HetDister]
 ```

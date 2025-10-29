@@ -1,4 +1,4 @@
-module DemoInfer
+module HetDister
 
 using StatsBase, Distributions, HistogramBinnings
 using LinearAlgebra, Statistics

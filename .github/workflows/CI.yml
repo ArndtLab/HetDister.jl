@@ -72,6 +72,6 @@ jobs:
         shell: julia --project=docs --color=yes {0}
         run: |
           using Documenter: DocMeta, doctest
-          using DemoInfer
-          DocMeta.setdocmeta!(DemoInfer, :DocTestSetup, :(using DemoInfer); recursive=true)
-          doctest(DemoInfer)
+          using HetDister
+          DocMeta.setdocmeta!(HetDister, :DocTestSetup, :(using HetDister); recursive=true)
+          doctest(HetDister)
