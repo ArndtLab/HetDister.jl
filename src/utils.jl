@@ -3,6 +3,8 @@
 
 A data structure to store the results of a fit.
 
+See the introduction for how the model is 
+parameterized [Data form of input and output](@ref).
 Some methods are defined for this type to get the vector of parameters, std errors, 
 model evidence, etc. See [`get_para`](@ref), [`sds`](@ref), [`evd`](@ref), 
 [`pop_sizes`](@ref), [`durations`](@ref).
@@ -11,10 +13,9 @@ struct FitResult
     nepochs::Int
     bin::Int
     mu::Float64
+    rho::Float64
     para::Vector
     stderrors::Vector
-    para_name
-    TN::Vector
     method::String
     converged::Bool
     lp::Float64
@@ -69,25 +70,6 @@ pop_sizes(fit::FitResult) = fit.para[2:2:end]
 Return the fitted durations of the epochs.
 """
 durations(fit::FitResult) = fit.para[3:2:end-1]
-
-"""
-    get_chain(fit::FitResult)
-
-Return two matrices containing the chain of fitted parameters
-and std errors respectively (both as columns).
-"""
-function get_chain(fit::FitResult)
-    if isempty(findall(keys(fit.opt) .== :chain))
-        return fit.para, fit.stderrors
-    end
-    p = mapreduce(hcat, fit.opt.chain) do x
-        get_para(x)
-    end
-    sd = mapreduce(hcat, fit.opt.chain) do x
-        sds(x)
-    end
-    return p, sd
-end
 
 npar(fit::FitResult) = 2fit.nepochs
 
@@ -156,7 +138,9 @@ end
 
 mutable struct FitOptions
     nepochs::Int
-    Ltot::Number
+    mu::Float64
+    rho::Float64
+    Ltot::Real
     init::Vector{Float64}
     perturb::BitVector
     delta::Deltas
@@ -169,11 +153,16 @@ mutable struct FitOptions
     smallest_segment::Int
     force::Bool
     maxnts::Int
+    naive::Bool
+    order::Int
+    ndt::Int
 end
 
 function Base.show(io::IO, fop::FitOptions)
     println(io, "FitOptions with:")
     println(io, "total genome length: ", fop.Ltot)
+    println(io, "μ / bp / g: ", fop.mu)
+    println(io, "ρ / bp / g: ", fop.rho)
     println(io, "N lower bound: ", fop.low.Nlow)
     println(io, "N upper bound: ", fop.upp.Nupp)
     println(io, "T lower bound: ", fop.low.Tlow)
@@ -184,9 +173,11 @@ end
 npar(fop::FitOptions) = 2fop.nepochs
 
 """
-    FitOptions(Ltot::Number; kwargs...)
+    FitOptions(Ltot, mu, rho; kwargs...)
 
-Construct an an object of type FitOptions, requiring total genome length `Ltot` in base pairs.
+Construct an an object of type FitOptions, requiring 
+total genome length `Ltot` in base pairs,
+mutation rate and recombination rate per base pair per generation.
 
 ## Optional Arguments
 - `Tlow::Number=10`, `Tupp::Number=1e7`: The lower and upper bounds for the duration of epochs.
@@ -194,18 +185,26 @@ Construct an an object of type FitOptions, requiring total genome length `Ltot` 
 - `level::Float64=0.95`: The confidence level for the confidence intervals on the parameters estimates.
 - `solver`: The solver to use for the optimization, default is `LBFGS()`.
 - `opt`: The optimization options, a named tuple which is passed to 
-[Optim.jl](https://github.com/JuliaNLSolvers/Optim.jl). Default is has keywords:
+ [Optim.jl](https://github.com/JuliaNLSolvers/Optim.jl). Default has keywords:
     - `iterations = 6000`
     - `allow_f_increases = true`
     - `time_limit = 60`
     - `g_tol = 5e-8`
     - `show_warnings = false`.
 - `smallest_segment::Int=1`: The smallest segment size present in the histogram to consider 
-for the signal search.
+ for the signal search.
 - `force::Bool=true`: if true try to fit further epochs even when no signal is found.
 - `maxnts::Int=10`: The maximum number of new time splits to consider when adding a new epoch.
+ Higher is greedier.
+- `naive::Bool=true`: if true the expected weights are computed
+  using the closed form integral, otherwise using higher order transition
+  probabilities from SMC' theory (slower).
+- `order::Int=10`: maximum number of higher order corrections to use
+  when `naive` is false, i.e. number of intermediate recombination events
+  plus one.
+- `ndt::Int=800`: number of Legendre nodes to use when `naive` is false.
 """
-function FitOptions(Ltot::Number;
+function FitOptions(Ltot, mu, rho;
     Tlow = 10, Tupp = 1e7,
     Nlow = 10, Nupp = 1e8,
     level = 0.95,
@@ -220,7 +219,10 @@ function FitOptions(Ltot::Number;
     nepochs::Int = 1,
     smallest_segment::Int = 1,
     force::Bool = true,
-    maxnts::Int = 15
+    maxnts::Int = 15,
+    naive::Bool = true,
+    order = 10,
+    ndt = 800
 )
     N = 2nepochs
     init = zeros(N)
@@ -234,6 +236,8 @@ function FitOptions(Ltot::Number;
 
     return FitOptions(
         nepochs,
+        mu,
+        rho,
         Ltot,
         init,
         perturb,
@@ -246,14 +250,17 @@ function FitOptions(Ltot::Number;
         level,
         smallest_segment,
         force,
-        maxnts
+        maxnts,
+        naive,
+        order,
+        ndt
     )
 end
 
-function setinit!(fop::FitOptions, weights::Vector{<:Integer}, mu::Float64)
+function setinit!(fop::FitOptions, weights::Vector{<:Integer})
     vol = sum(weights)
     @assert vol != 0 "Empty histogram!"
-    N = 1/(4*mu*(fop.Ltot/vol)) # can be rough estimate depending on binning
+    N = 1/(4*fop.mu*(fop.Ltot/vol)) # can be rough estimate depending on binning
     n = npar(fop)
     fop.init[1] = fop.Ltot
     fop.init[2:end] .= N .* (0.99 .+ rand(n-1) .* 0.02)
@@ -328,4 +335,12 @@ function Base.getindex(p::PInit, i::Int)
             return rand(Uniform(low, upp))
         end
     end
+end
+
+function isnaive(fop::FitOptions)
+    return fop.naive
+end
+
+function setnaive!(fop::FitOptions, flag::Bool)
+    fop.naive = flag
 end
