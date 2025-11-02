@@ -64,7 +64,7 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochrange::AbstractRange{<:Integer}
 end
 
 """
-    demoinfer_(h, epochs, fop; kwargs...)
+    demoinfer(h, epochs, fop; kwargs...)
 
 Infer demographic histories with piece-wise constant epochs
 where the number of epochs is exactly `epochs`. Takes a histogram
