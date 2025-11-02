@@ -2,6 +2,7 @@ module CoalescentBase
 using ForwardDiff
 
 export getts, getns,
+    Nt, cumcr,
     coalescent, extbps, 
     laplace_n, 
     lineages, cumulative_lineages
@@ -24,6 +25,36 @@ function getns(TN::AbstractVector{T}, i::Int) where T
     return TN[end-2*(i-1)]
 end
 
+function Nt(t::Real, TN::AbstractVector{<:Real})
+    pnt = 1
+    while pnt < length(TN)÷2 && getts(TN, pnt+1) <= t
+        pnt += 1
+    end
+    return getns(TN, pnt)
+end
+
+# cumulative coalescence rate between t1 and t2
+function cumcr(t1::Real, t2::Real, TN::AbstractVector{<:Real})
+    @assert t2 >= t1
+    @assert t1 >= 0
+    pnt = 1
+    while pnt < length(TN)÷2 && getts(TN, pnt+1) <= t1
+        pnt += 1
+    end
+    c = 0.
+    while pnt < length(TN)÷2 && getts(TN, pnt) < t2
+        gens = min(t2, getts(TN, pnt+1)) - max(t1, getts(TN, pnt))
+        c += gens / getns(TN, pnt)
+        pnt += 1
+    end
+    if getts(TN, pnt) < t2
+        gens = t2 - max(t1, getts(TN, pnt))
+        c += gens / getns(TN, pnt)
+        pnt += 1
+    end
+    return c
+end
+
 """
     coalescent(t::Number, TN::Vector)
 
@@ -37,21 +68,7 @@ of such `t`s is geometric as introduced by Hudson and Kingman.
 ### References
 """
 function coalescent(t::Number, TN::Vector)
-    pnt = 1
-    c = 0.
-    while (pnt < length(TN)÷2) && (getts(TN, pnt) < t)
-        gens = getts(TN, pnt+1) >= t ? (t - getts(TN, pnt)) : (getts(TN, pnt+1) - getts(TN, pnt))
-        N = getns(TN, pnt)
-        c += gens / 2N
-        pnt += 1
-    end
-    if getts(TN, pnt) < t
-        gens = t - getts(TN, pnt)
-        N = getns(TN, pnt)
-        c += gens / 2N
-        pnt += 1
-    end
-    return exp(-c) / (2 * getns(TN, pnt-1))
+    return exp(-cumcr(0, t, TN)/2) / (2 * Nt(t, TN))
 end
 
 """
@@ -65,21 +82,7 @@ The demographic scenario is encoded in `TN`.
 ### Reference
 """
 function extbps(t::Number, TN::Vector)
-    pnt = 1
-    c = 0.
-    while (pnt < length(TN)÷2) && (getts(TN, pnt) < t)
-        gens = getts(TN, pnt+1) >= t ? (t - getts(TN, pnt)) : (getts(TN, pnt+1) - getts(TN, pnt))
-        N = getns(TN, pnt)
-        c += gens / 2N
-        pnt += 1
-    end
-    if getts(TN, pnt) < t
-        gens = t - getts(TN, pnt)
-        N = getns(TN, pnt)
-        c += gens / (2 * N)
-        pnt += 1
-    end
-    return round(TN[1]*exp(-c))
+    return round(TN[1]*exp(-cumcr(0, t, TN)/2))
 end
 
 function laplace_n(TN::Vector, s::Number)
@@ -138,56 +141,32 @@ than `k` basepairs.
 The demographic scenario is encoded in `TN` and the recombination rate is `rho`
 in unit per bp per generation.
 """
-function lineages(t::Number, rho::Number, TN::Vector; k::Number = 0)
-    L = TN[1]
-    pnt = 1
-    c = 0.
-    while (pnt < length(TN)÷2) && (getts(TN, pnt) < t)
-        gens = getts(TN, pnt+1) >= t ? (t - getts(TN, pnt)) : (getts(TN, pnt+1) - getts(TN, pnt))
-        N = getns(TN, pnt)
-        c += gens / (2 * N)
-        pnt += 1
-    end
-    if getts(TN, pnt) < t
-        gens = t - getts(TN, pnt)
-        N = getns(TN, pnt)
-        c += gens / (2 * N)
-        pnt += 1
-    end
-    return 2 * L * rho * t * exp(-2 * rho * t * k - c) / (2 * getns(TN, pnt-1))
+function lineages(t::Number, TN::Vector, rho::Number; k::Number = 0)
+    return 2 * TN[1] * rho * t * exp(-2 * rho * t * k - cumcr(0, t, TN)/2) / (2 * Nt(t, TN))
 end
 
-function cumulative_lineages(t, TN::Vector, rho::Float64; k::Number = 0)
-    N = TN[end]
+function cumulative_lineages(t::Number, TN::Vector, rho::Float64; k::Number = 0)
+    s = 0.
+    cum = 0.
     pnt = 1
-    c = 0.
-    while (pnt < length(TN)÷2) && (getts(TN, pnt) < t)
-        gens = getts(TN, pnt+1) >= t ? (t - getts(TN, pnt)) : (getts(TN, pnt+1) - getts(TN, pnt))
-        N = getns(TN, pnt)
-        c += gens / (2 * N)
+    while pnt < length(TN)÷2 && getts(TN, pnt+1) < t
         pnt += 1
+        t_ = getts(TN, pnt)
+        aem = 1/2getns(TN, pnt-1)
+        aep = 1/2getns(TN, pnt)
+        cum += (t_ - getts(TN, pnt-1)) / 2getns(TN, pnt-1)
+        s += ( 
+            t_*(aep/(aep+2rho*k) - aem/(aem+2rho*k)) 
+            + (aep/(aep+2rho*k)^2 - aem/(aem+2rho*k)^2)
+        ) * exp(-2rho * k * t_ - cum)
     end
-    if getts(TN, pnt) < t
-        gens = t - getts(TN, pnt)
-        N = getns(TN, pnt)
-        c += gens / (2 * N)
-        pnt += 1
-    end
-    first_der = ForwardDiff.derivative(s -> laplace_n(TN,s), 2rho*k) / (2 * TN[end]^2)
-    ep = 1
-    while ep < length(TN)÷2 && getts(TN, ep+1) <= t
-        ep += 1
-    end
-    if isnothing(ep)
-        TNp = TN[1:2]
-    else
-        remn_ep = sum(TN[end-2ep-1:2:end-1]) - t
-        TNp = TN[1:end-2ep+2]
-        TNp[end-1] = remn_ep
-    end
-    first_der_p = ForwardDiff.derivative(s -> laplace_n(TNp,s), 2rho*k) / (2 * TNp[end]^2)
-    lap_p = laplace_n(TNp, 2rho*k) / (2 * TNp[end]^2)
-    return round(2TN[1] * rho * (exp(-c-2rho*k*t)*(first_der_p - t*lap_p) - first_der))
+    ae = 1/2getns(TN, pnt)
+    cum += (t - getts(TN, pnt)) / 2getns(TN, pnt)
+    s -= ( 
+        t*ae/(ae+2rho*k) + ae/(ae+2rho*k)^2
+    ) * exp(-2rho * k * t - cum)
+    s += 2 * getns(TN, 1) / (1 + 4*getns(TN, 1) * rho * k)^2
+    return s * 2 * TN[1] * rho
 end
 
 end

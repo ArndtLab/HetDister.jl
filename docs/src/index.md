@@ -47,5 +47,5 @@ The output is a vector of parameters in the form `[L, N0, T1, N1, T2, N2, ...]` 
 ```
 
 ```@autodocs
-Modules = [HetDister]
+Modules = [HetDister, HetDister.Spectra]
 ```

@@ -109,10 +109,11 @@ end
     ts = timesplitter(h, get_para(stat), fop; frame = 10)
     @test length(ts) >= 2
 
-    res = demoinfer(ibs_segments, length(TN)÷2, mu, rho;
+    res = demoinfer(ibs_segments, 1:length(TN)÷2, mu, rho;
         iters = 1
     )
-    @test length(res.chain) == 1
+    @test length(res.chains) == length(TN)÷2
+    @test all(length.(res.chains) .== 1)
     @test !any(isinf.(evd.(res.fits)))
     best = compare_models(res.fits)
     @test !isnothing(best)
@@ -157,15 +158,15 @@ end
         Ltot = sum(ibs_segments)
         pfits = pre_fit(h, 5, mu, rho, 10, 100, Ltot; require_convergence = false)
         fop = FitOptions(Ltot, mu, rho; order = 10, ndt = 800)
-        res = demoinfer(h, 5, fop)
+        res = demoinfer(h, 4:5, fop)
         best = compare_models(res.fits)
         @test !isnothing(best)
         @test best.nepochs == 5
-        m = 5
-        for i in 1:length(res.chain)
-            p = get_para(res.chain[i][m])
+        m = 2
+        for i in 1:length(res.chains[m])
+            p = get_para(res.chains[m][i])
             wth = integral_ws(h.edges[1], mu, p)
-            ws = wth .+ res.corrections[i]
+            ws = wth .+ res.corrections[m][i]
             ws = max.(0,ws)
             resid = (h.weights .- ws) ./ sqrt.(h.weights .+ ws)
             resid[ws .== 0 .& h.weights .== 0] .= 0
