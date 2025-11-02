@@ -162,7 +162,7 @@ end
         best = compare_models(res.fits)
         @test !isnothing(best)
         @test best.nepochs == 5
-        m = 5
+        m = 2
         for i in 1:length(res.chains[m])
             p = get_para(res.chains[m][i])
             wth = integral_ws(h.edges[1], mu, p)
