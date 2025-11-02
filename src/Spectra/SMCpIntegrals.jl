@@ -11,34 +11,6 @@ using .CoalescentBase
 export IntegralArrays, prordn!,
     firstorder, firstorderint
 
-function Nt(t::Real, TN::AbstractVector{<:Real})
-    pnt = 1
-    while pnt < length(TN)÷2 && getts(TN, pnt+1) <= t
-        pnt += 1
-    end
-    return getns(TN, pnt)
-end
-
-function cumcr(t1::Real, t2::Real, TN::AbstractVector{<:Real})
-    @assert t2 >= t1
-    @assert t1 >= 0
-    pnt = 1
-    while pnt < length(TN)÷2 && getts(TN, pnt+1) <= t1
-        pnt += 1
-    end
-    c = 0.
-    while pnt < length(TN)÷2 && getts(TN, pnt) < t2
-        gens = min(t2, getts(TN, pnt+1)) - max(t1, getts(TN, pnt))
-        c += gens / getns(TN, pnt)
-        pnt += 1
-    end
-    if getts(TN, pnt) < t2
-        gens = t2 - max(t1, getts(TN, pnt))
-        c += gens / getns(TN, pnt)
-        pnt += 1
-    end
-    return c
-end
 
 function firstorder(r::Real, rate::Real, TN::AbstractVector{<:Real})
     s = 0.
