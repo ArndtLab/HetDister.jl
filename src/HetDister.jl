@@ -120,32 +120,6 @@ function adapt_histogram(segments::AbstractVector{<:Integer}; lo::Int=1, hi::Int
         append!(h_obs, segments)
         l = findlast(h_obs.weights .> 0)
     end
-    edges = h_obs.edges[1].edges
-    T = eltype(edges)
-    nedges = T[]
-    weights = h_obs.weights
-    counter = 0
-    for i in eachindex(weights)
-        if i == 1
-            push!(nedges, edges[i])
-        elseif weights[i] == 0
-            # record row of zeros
-            counter += 1
-        elseif counter > 0
-            # enter here only when is not zero following a zero
-            hi = edges[i+1]
-            lo = edges[i-counter-1]
-            mid = floor(sqrt(lo * hi))
-            push!(nedges, mid)
-            counter = 0
-        elseif counter == 0
-            # enter here when non zero following non zero
-            push!(nedges, edges[i])
-        end
-    end
-    push!(nedges, edges[end])
-    h_obs = Histogram(LogEdgeVector(nedges))
-    append!(h_obs, segments)
     return h_obs
 end
 

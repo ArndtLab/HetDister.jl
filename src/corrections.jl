@@ -1,13 +1,15 @@
+function fraction(mu, rho, n)
+    mu/(mu+rho) * (rho/(mu+rho))^(n-1)
+end
+
 """
-    demoinfer(segments::AbstractVector{<:Integer}, epochs::Int, mu::Float64, rho::Float64; kwargs...)
+    demoinfer(segments::AbstractVector{<:Integer}, epochrange::AbstractRange{<:Integer}, mu::Float64, rho::Float64; kwargs...)
 
 Make an histogram with IBS `segments` and infer demographic histories with
-piece-wise constant epochs where the number of epochs is smaller or equal
-to `epochs`.
+piece-wise constant epochs where the number of epochs is `epochrange`.
 
-Return a vector of `FitResult` of length smaller or equal to `epochs`, 
-see [`FitResult`](@ref), `mu` and `rho` are respectively the mutation 
-and recombination rates per base pair per generation.
+Return a named tuple which contains a vector of `FitResult` in the field `fits`
+(see [`FitResult`](@ref)).
 
 # Optional Arguments
 - `fop::FitOptions = FitOptions(sum(segments), mu, rho)`: the fit options, see [`FitOptions`](@ref).
@@ -15,10 +17,13 @@ and recombination rates per base pair per generation.
 - `hi::Int=50_000_000`: The highest segment length to be considered in the histogram
 - `nbins::Int=400`: The number of bins to use in the histogram
 - `iters::Int=10`: The number of iterations to perform. It might converge earlier
+- `setorder::Bool=true`: the order at which the SMC' approximation is truncated will be set automatically according to the cutoff
+- `cutoff=2e-5`: when `setorder` a fraction of segments smaller than `cutoff` will be ignored to set the order 
 """
-function demoinfer(segments::AbstractVector{<:Integer}, epochs::Int, mu::Float64, rho::Float64;
+function demoinfer(segments::AbstractVector{<:Integer}, epochrange::AbstractRange{<:Integer}, mu::Float64, rho::Float64;
     fop::FitOptions = FitOptions(sum(segments), mu, rho),
     lo::Int = 1, hi::Int = 50_000_000, nbins::Int = 400,
+    setorder::Bool = true, cutoff = 2e-5,
     kwargs...
 )
     h = adapt_histogram(segments; lo, hi, nbins)
@@ -26,37 +31,75 @@ function demoinfer(segments::AbstractVector{<:Integer}, epochs::Int, mu::Float64
         @warn "inconsistent Ltot and segments, taking sum(segments)"
         fop.Ltot = sum(segments)
     end
-    return demoinfer(h, epochs, fop; kwargs...)
+    if setorder
+        o = findfirst(map(i->fraction(fop.mu,fop.rho,i),1:30) .< cutoff)
+        isnothing(o) && (o = 30)
+        fop.order = o
+        @info "setting order to $o"
+    end
+    return demoinfer(h, epochrange, fop; kwargs...)
 end
 
 """
-    demoinfer_(h, epochrange, mu, rho, Ltot; kwargs...)
+    demoinfer(h::Histogram, epochrange, fop::FitOptions; iters=15)
+
+Take an histogram of IBS segments, fit options, and infer demographic histories with
+piece-wise constant epochs where the number of epochs is `epochrange`.
+See [`FitOptions`](@ref).
+"""
+function demoinfer(h_obs::Histogram{T,1,E}, epochrange::AbstractRange{<:Integer}, fop_::FitOptions;
+    iters::Int = 15
+) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
+    @assert length(epochrange) > 0
+    results = Vector{NamedTuple}(undef, length(epochrange))
+    @threads for i in eachindex(epochrange)
+        results[i] = demoinfer(h_obs, epochrange[i], fop_; iters = iters)
+    end
+    return (;
+        fits = map(r->r.f, results),
+        chains = map(r->r.chain, results),
+        corrections = map(r->r.corrections, results),
+        h_obs = results[1].h_obs
+    )
+end
+
+"""
+    demoinfer_(h, epochs, fop; kwargs...)
 
 Infer demographic histories with piece-wise constant epochs
-where the number of epochs is in `epochrange`. Takes a histogram
-as input and the total length of the IBS segments.
+where the number of epochs is exactly `epochs`. Takes a histogram
+and a `FitOptions` object (see [`FitOptions`](@ref)).
 
-It is much lighter to distribute the histogram than the vector of segments
-which may also be streamed directly from disk into the histogram.
+Return a named tuple with a `FitResult` object in the field `f`.
+
+It is much lighter to distribute the histogram than the vector of segments,
+this may also be streamed directly from disk into the histogram.
 """
-function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop::FitOptions;
-    iters::Int = 10
+function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
+    iters::Int = 15
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
     @assert !isempty(h_obs.weights) "histogram is empty"
     @assert epochs > 0 "epochrange has to be strictly positive"
 
     ho_mod = Histogram(h_obs.edges)
 
+    fop = deepcopy(fop_)
     rs = midpoints(h_obs.edges[1])
     bag = IntegralArrays(fop.order, fop.ndt, length(rs), Val{2epochs})
 
     chain = []
     corrections = []
 
-    fits = pre_fit!(fop, h_obs, epochs; require_convergence = false)
-    f = compare_models(fits)
-    init = get_para(f)
+    ho_mod.weights .= h_obs.weights
+    corr = zeros(eltype(h_obs.weights), length(h_obs.weights))
+    f = nothing
     for iter in 1:iters
+        fits = pre_fit!(fop, ho_mod, epochs; require_convergence = false)
+        f = fits[end]
+        init = get_para(f)
+        push!(chain, f)
+        push!(corrections, corr)
+
         weightsnaive = integral_ws(h_obs.edges[1], fop.mu, init)
         mldsmcp!(bag, 1:fop.order, rs, h_obs.edges[1].edges, fop.mu, fop.rho, init)
 
@@ -69,24 +112,20 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop::FitOptions;
         temp .= round.(Int, temp)
         ho_mod.weights .= max.(temp, 0)
 
-        fits = pre_fit!(fop, ho_mod, epochs; require_convergence = false)
-        f = compare_models(fits)
-
-        init = f.para
-        push!(chain, fits)
-        push!(corrections, corr)
         if iter > 1
             deltacorr = (corrections[iter] .- corrections[iter-1]) ./ corrections[iter-1]
-            if mean(abs.(deltacorr)) < 0.05
+            deltacorr[isnan.(deltacorr)] .= 0.
+            if maximum(abs.(deltacorr)) < 0.01
                 break
             end
         end
     end
 
     (;
-        fits,
+        f,
         chain,
-        corrections
+        corrections,
+        h_obs
     )
 end
 
