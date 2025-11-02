@@ -70,7 +70,7 @@ end
     N0 = 1_000
     ts = rand(1:40*N0, 10)
     for t in ts
-        @test abs(Spectra.lineages(t, 1, [1, N0]; k = 1.) - 2 * t * exp(-2 * t - 1/2N0) / 2N0) < eps(Float64)
+        @test abs(Spectra.lineages(t, [1, N0], 1; k = 1.) - 2 * t * exp(-2 * t - 1/2N0) / 2N0) < eps(Float64)
     end
 end
 
