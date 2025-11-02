@@ -22,4 +22,5 @@ makedocs(;
 deploydocs(;
     repo="github.com/ArndtLab/HetDister.jl",
     devbranch="main",
+    versions=["stable" => "v^", "v#.#", "dev" => "dev"],
 )
