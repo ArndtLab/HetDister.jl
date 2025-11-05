@@ -96,30 +96,30 @@ function CustomEdgeVector(; lo = 1, hi = 10, nbins::Integer)
     end
     edges = unique(round.(Int, edges))
     edges[1] = lo
-    edges[end] = hi + 1
+    @assert all(diff(edges) .> 0)
     @assert length(edges) == nbins + 1
     LogEdgeVector(edges)
 end
 
 """
-    adapt_histogram(segments::AbstractVector{<:Integer}; lo::Int=1, hi::Int=50_000_000, nbins::Int=200)
+    adapt_histogram(segments::AbstractVector{<:Integer}; lo::Int=1, hi::Int=1_000_000, nbins::Int=800)
 
 Build an histogram from `segments` logbinned between `lo` and `hi`
-with `nbins` bins (see `HistogramBinnings.jl`).
+with `nbins` bins.
 
-The upper limit is adapted to the maximum observed length, so default value
-is on purpose high.
+The upper limit is adapted to ensure logspacing with the requested `nbins`.
 """
-function adapt_histogram(segments::AbstractVector{<:Integer}; lo::Int=1, hi::Int=50_000_000, nbins::Int=200)
+function adapt_histogram(segments::AbstractVector{<:Integer}; lo::Int=1, hi::Int=1_000_000, nbins::Int=800)
     h_obs = Histogram(CustomEdgeVector(;lo, hi, nbins))
+    @assert !isempty(segments)
     append!(h_obs, segments)
-    l = findlast(h_obs.weights .> 0)
-    while h_obs.edges[1].edges[l+1] + 1 < hi
-        hi = h_obs.edges[1].edges[l+1]
-        h_obs = Histogram(CustomEdgeVector(;lo, hi, nbins))
-        append!(h_obs, segments)
-        l = findlast(h_obs.weights .> 0)
-    end
+    # l = findlast(h_obs.weights .> 0)
+    # while h_obs.edges[1].edges[l+1] + 1 < hi
+    #     hi = h_obs.edges[1].edges[l+1]
+    #     h_obs = Histogram(CustomEdgeVector(;lo, hi, nbins))
+    #     append!(h_obs, segments)
+    #     l = findlast(h_obs.weights .> 0)
+    # end
     return h_obs
 end
 
