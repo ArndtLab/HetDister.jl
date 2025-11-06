@@ -41,19 +41,25 @@ function demoinfer(segments::AbstractVector{<:Integer}, epochrange::AbstractRang
 end
 
 """
-    demoinfer(h::Histogram, epochrange, fop::FitOptions; iters=15)
+    demoinfer(h::Histogram, epochrange, fop::FitOptions; iters=15, reltol=1e-2, corcut=4)
+    demoinfer(h, epochs, fop; iters=15, reltol=1e-2, corcut=4)
 
 Take an histogram of IBS segments, fit options, and infer demographic histories with
 piece-wise constant epochs where the number of epochs is `epochrange`.
 See [`FitOptions`](@ref).
+Return a named tuple which contains a vector of `FitResult` in the field `fits`
+(see [`FitResult`](@ref)).
+
+If `epochrange` is a integer, then it fits only the model with that number of epochs.
+Return a named tuple with a `FitResult` object in the field `f`.
 """
 function demoinfer(h_obs::Histogram{T,1,E}, epochrange::AbstractRange{<:Integer}, fop_::FitOptions;
-    iters::Int = 15
+    kwargs...
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
     @assert length(epochrange) > 0
     results = Vector{NamedTuple}(undef, length(epochrange))
     @threads for i in eachindex(epochrange)
-        results[i] = demoinfer(h_obs, epochrange[i], fop_; iters = iters)
+        results[i] = demoinfer(h_obs, epochrange[i], fop_; kwargs...)
     end
     return (;
         fits = map(r->r.f, results),
@@ -63,20 +69,8 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochrange::AbstractRange{<:Integer}
     )
 end
 
-"""
-    demoinfer(h, epochs, fop; kwargs...)
-
-Infer demographic histories with piece-wise constant epochs
-where the number of epochs is exactly `epochs`. Takes a histogram
-and a `FitOptions` object (see [`FitOptions`](@ref)).
-
-Return a named tuple with a `FitResult` object in the field `f`.
-
-It is much lighter to distribute the histogram than the vector of segments,
-this may also be streamed directly from disk into the histogram.
-"""
 function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
-    iters::Int = 15
+    iters::Int = 15, reltol::Float64 = 1e-2, corcut::Int = 4
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
     @assert !isempty(h_obs.weights) "histogram is empty"
     @assert epochs > 0 "epochrange has to be strictly positive"
@@ -107,7 +101,7 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
 
         yth = get_tmp(bag.ys, eltype(init))
         corr = yth .* diff(h_obs.edges[1]) .- weightsnaive
-        corr[1:4] .= 0.
+        corr[1:corcut] .= 0.
         temp = ho_mod.weights .- corr
         temp .= round.(Int, temp)
         ho_mod.weights .= max.(temp, 0)
@@ -115,7 +109,7 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
         if iter > 1
             deltacorr = (corrections[iter] .- corrections[iter-1]) ./ corrections[iter-1]
             deltacorr[isnan.(deltacorr)] .= 0.
-            if maximum(abs.(deltacorr)) < 0.01
+            if maximum(abs.(deltacorr)) < reltol
                 break
             end
         end
