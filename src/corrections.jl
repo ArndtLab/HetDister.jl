@@ -65,7 +65,9 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochrange::AbstractRange{<:Integer}
         fits = map(r->r.f, results),
         chains = map(r->r.chain, results),
         corrections = map(r->r.corrections, results),
-        h_obs = results[1].h_obs
+        h_obs = results[1].h_obs,
+        yth = map(r->r.yth, results),
+        deltas = map(r->r.deltas, results)
     )
 end
 
@@ -83,10 +85,12 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
 
     chain = []
     corrections = []
+    deltas = []
 
     ho_mod.weights .= h_obs.weights
     corr = zeros(eltype(h_obs.weights), length(h_obs.weights))
     f = nothing
+    yth = nothing
     for iter in 1:iters
         fits = pre_fit!(fop, ho_mod, epochs; require_convergence = false)
         f = fits[end]
@@ -109,7 +113,9 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
         if iter > 1
             deltacorr = (corrections[iter] .- corrections[iter-1]) ./ corrections[iter-1]
             deltacorr[isnan.(deltacorr)] .= 0.
-            if maximum(abs.(deltacorr)) < reltol
+            delta = maximum(abs.(deltacorr))
+            push!(deltas, delta)
+            if delta < reltol
                 break
             end
         end
@@ -119,7 +125,9 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
         f,
         chain,
         corrections,
-        h_obs
+        h_obs,
+        yth,
+        deltas
     )
 end
 

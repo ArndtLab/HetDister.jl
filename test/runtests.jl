@@ -93,9 +93,10 @@ end
 
 @testset "Test core functionality" for (mu,rho,TN) in zip(mus, rhos, TNs)
 
-    h = Histogram(LogEdgeVector(lo = 1, hi = 1_000_000, nbins = 200))
     ibs_segments = get_sim(TN, mu, rho)
-    append!(h, ibs_segments)
+    h = adapt_histogram(ibs_segments; nbins = 200)
+    @test length(h.weights) == 200
+    @test h.weights[end] > 1
 
     stat = pre_fit(h, 2, mu, rho, 10, 100, sum(ibs_segments); require_convergence = false)
     @test isassigned(stat, 1)
@@ -113,7 +114,11 @@ end
         iters = 1
     )
     @test length(res.chains) == length(TN)÷2
+    @test length(res.yth) == length(TN)÷2
     @test all(length.(res.chains) .== 1)
+    @test all(length.(res.corrections) .== 1)
+    @test all(length.(res.deltas) .== 0)
+    @test all(length.(res.yth) .== length(res.h_obs.weights))
     @test !any(isinf.(evd.(res.fits)))
     best = compare_models(res.fits)
     @test !isnothing(best)
@@ -139,7 +144,7 @@ end
 @testset "fitting procedure" begin
     @testset "exhaustive pre-fit $(length(TN)÷2) epochs,  mu $mu, rho $rho" for (mu,rho,TN) in itr
         ibs_segments = get_sim(TN, mu, rho)
-        h = adapt_histogram(ibs_segments)
+        h = adapt_histogram(ibs_segments; nbins = 200)
         Ltot = sum(ibs_segments)
         fop = FitOptions(Ltot, mu, rho; maxnts = 8, force = false)
         fits = pre_fit!(fop, h, 8; require_convergence = false)
@@ -153,7 +158,7 @@ end
     @testset "Iterative fit" begin
         mu, rho, TN = mus[1], rhos[1], TNs[3]
         ibs_segments = get_sim(TN, mu, rho)
-        h = adapt_histogram(ibs_segments)
+        h = adapt_histogram(ibs_segments; nbins = 200)
         Ltot = sum(ibs_segments)
         pfits = pre_fit(h, 5, mu, rho, 10, 100, Ltot; require_convergence = false)
         fop = FitOptions(Ltot, mu, rho; order = 10, ndt = 800)
