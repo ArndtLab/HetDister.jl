@@ -41,8 +41,8 @@ function demoinfer(segments::AbstractVector{<:Integer}, epochrange::AbstractRang
 end
 
 """
-    demoinfer(h::Histogram, epochrange, fop::FitOptions; iters=15, reltol=1e-2, corcut=4)
-    demoinfer(h, epochs, fop; iters=15, reltol=1e-2, corcut=4)
+    demoinfer(h::Histogram, epochrange, fop::FitOptions; iters=15, reltol=1e-1, corcut=4)
+    demoinfer(h, epochs, fop; iters=15, reltol=1e-1, corcut=4)
 
 Take an histogram of IBS segments, fit options, and infer demographic histories with
 piece-wise constant epochs where the number of epochs is `epochrange`.
@@ -72,7 +72,7 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochrange::AbstractRange{<:Integer}
 end
 
 function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
-    iters::Int = 15, reltol::Float64 = 1e-2, corcut::Int = 4
+    iters::Int = 15, reltol::Float64 = 1e-1, corcut::Int = 4
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
     @assert !isempty(h_obs.weights) "histogram is empty"
     @assert epochs > 0 "epochrange has to be strictly positive"
@@ -111,8 +111,7 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
         ho_mod.weights .= max.(temp, 0)
 
         if iter > 1
-            deltacorr = (corrections[iter] .- corrections[iter-1]) ./ corrections[iter-1]
-            deltacorr[isnan.(deltacorr)] .= 0.
+            deltacorr = corrections[iter] .- corrections[iter-1]
             delta = maximum(abs.(deltacorr))
             push!(deltas, delta)
             if delta < reltol
