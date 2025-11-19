@@ -199,10 +199,6 @@ function pre_fit!(fop::FitOptions, h::Histogram{T,1,E}, nfits::Int;
             f = fs[argmax(lps)]
             @debug "best " ts[argmax(lps)] f.lp f.converged
             f = perturb_fit!(f, fop, h)
-            if require_convergence && !f.converged
-                @info "pre_fit: not converged, epoch $i"
-                return fits
-            end
         end
 
         if any(isnan.(f.para))
@@ -210,6 +206,10 @@ function pre_fit!(fop::FitOptions, h::Histogram{T,1,E}, nfits::Int;
         end
 
         push!(fits, f)
+        if require_convergence && !f.converged
+            @info "pre_fit: not converged, epoch $i"
+            return fits
+        end
     end
     return fits
 end
