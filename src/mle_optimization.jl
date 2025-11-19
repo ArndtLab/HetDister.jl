@@ -170,7 +170,7 @@ function getFitResult(hess, para, lp, mle, options::FitOptions, counts)
         lp,
         logevidence,
         (;
-            mle,
+            mle.optim_result,
             at_any_boundary = any(at_uboundary) || any(at_lboundary), 
             at_uboundary, at_lboundary,
             options.low, options.upp, options.init,
