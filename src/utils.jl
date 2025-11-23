@@ -184,13 +184,6 @@ mutation rate and recombination rate per base pair per generation.
 - `Nlow::Number=10`, `Nupp::Number=1e8`: The lower and upper bounds for the population sizes.
 - `level::Float64=0.95`: The confidence level for the confidence intervals on the parameters estimates.
 - `solver`: The solver to use for the optimization, default is `LBFGS()`.
-- `opt`: The optimization options, a named tuple which is passed to 
-  [Optim.jl](https://github.com/JuliaNLSolvers/Optim.jl). Default has keywords:
-    - `iterations = 6000`
-    - `allow_f_increases = true`
-    - `time_limit = 60`
-    - `g_tol = 5e-8`
-    - `show_warnings = false`.
 - `smallest_segment::Int=1`: The smallest segment size present in the histogram to consider 
   for the signal search.
 - `force::Bool=true`: if true try to fit further epochs even when no signal is found.
@@ -203,26 +196,32 @@ mutation rate and recombination rate per base pair per generation.
   when `naive` is false, i.e. number of intermediate recombination events
   plus one.
 - `ndt::Int=800`: number of Legendre nodes to use when `naive` is false.
+
+## Optim Arguments
+Additional keywords are passed to the `Optim.Options` constructor 
+[Optim.jl](https://github.com/JuliaNLSolvers/Optim.jl). Default are:
+- `iterations = 6000`
+- `time_limit = 60`
+- `g_tol = 5e-8`
+- `show_warnings = false`
 """
 function FitOptions(Ltot, mu, rho;
     Tlow = 10, Tupp = 1e7,
     Nlow = 10, Nupp = 1e8,
     level = 0.95,
     solver = LBFGS(),
-    opt = (;
-        iterations = 6000,
-        allow_f_increases=true,
-        time_limit = 60,
-        g_tol = 5e-8,
-        show_warnings = false
-    ),
     nepochs::Int = 1,
     smallest_segment::Int = 1,
     force::Bool = true,
     maxnts::Int = 15,
     naive::Bool = true,
     order = 10,
-    ndt = 800
+    ndt = 800,
+    iterations = 6000,
+    time_limit = 60,
+    g_tol = 5e-8,
+    show_warnings = false,
+    kwargs...
 )
     N = 2nepochs
     init = zeros(N)
@@ -231,7 +230,7 @@ function FitOptions(Ltot, mu, rho;
     low = LBound(Ltot,Nlow,Tlow,N)
     prior = Uniform.(low,upp)
     perturb = falses(N)
-    factors = mapreduce( i->fill(i, 10), vcat, [0.001, 0.01, 0.1, 0.5, 0.5, 0.9, 2] )
+    factors = [0.001, 0.01, 0.1, 0.5, 0.5, 0.9, 2] # mapreduce( i->fill(i, 10), vcat, [0.001, 0.01, 0.1, 0.5, 0.5, 0.9, 2] )
     delta = Deltas(factors, 0)
 
     return FitOptions(
@@ -243,7 +242,7 @@ function FitOptions(Ltot, mu, rho;
         perturb,
         delta,
         solver,
-        Optim.Options(;opt...),
+        Optim.Options(;iterations, time_limit, g_tol, show_warnings, kwargs...),
         low,
         upp,
         prior,
@@ -272,8 +271,8 @@ function setinit!(fop::FitOptions, init::AbstractVector{Float64})
     @assert length(init) == npar(fop)
     fop.init .= init
     for i in eachindex(fop.init)
-        fop.init[i] < fop.low[i] ? fop.init[i] = fop.low[i] * 1.001 : nothing
-        fop.init[i] > fop.upp[i] ? fop.init[i] = fop.upp[i] * 0.999 : nothing
+        fop.init[i] <= fop.low[i] ? fop.init[i] = fop.low[i] * 1.001 : nothing
+        fop.init[i] >= fop.upp[i] ? fop.init[i] = fop.upp[i] * 0.999 : nothing
     end
     return nothing
 end
@@ -343,4 +342,14 @@ end
 
 function setnaive!(fop::FitOptions, flag::Bool)
     fop.naive = flag
+end
+
+function setOptimOptions!(fop::FitOptions;
+    iterations = 6000,
+    time_limit = 60,
+    g_tol = 5e-8,
+    show_warnings = false,
+    kwargs...
+)
+    fop.opt = Optim.Options(; iterations, time_limit, g_tol, show_warnings, kwargs...)
 end

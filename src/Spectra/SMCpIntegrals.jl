@@ -192,9 +192,11 @@ function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
                 temp[i,j] = s
             end
         end # I am modifying jprt in the end, so need to finish all temp first
-        @threads for i in 1:nrs
-            s2 = 0.
-            @inbounds for j in 1:n_dt
+        # the inner loop is variable in r, more efficient to multithread 
+        # the time loop and separate the terminal t integral below (only
+        # additional linear cost when single threaded)
+        @threads for j in 1:n_dt
+            @inbounds for i in 1:nrs
                 # convolution r integral
                 s = 0.
                 for k in 1:i-1
@@ -209,9 +211,14 @@ function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
                     s += temp[i,j] * (- expm1(-2rate * w * ts[j])) / 2ts[j]
                 end
                 jprt[j,i] = s
+            end
+        end
+        @threads for i in 1:nrs
+            s2 = 0.
+            @inbounds for j in 1:n_dt
                 # terminal t integral part
                 # 2t factor from p(r|t) here does not simplify
-                s2 += s * 2 * ts[j] * wt[j] * dts[j]
+                s2 += jprt[j,i] * 2 * ts[j] * wt[j] * dts[j]
             end
             res[i,o+1] = s2
         end

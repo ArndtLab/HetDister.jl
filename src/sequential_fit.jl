@@ -124,7 +124,7 @@ function perturb_fit!(f::FitResult, fop::FitOptions, h::Histogram;
             end
         end
     end
-    if f.lp < f_.lp
+    if f.lp < f_.lp || any(isnan, f.para)
         return f_
     end
     return f
@@ -199,17 +199,20 @@ function pre_fit!(fop::FitOptions, h::Histogram{T,1,E}, nfits::Int;
             f = fs[argmax(lps)]
             @debug "best " ts[argmax(lps)] f.lp f.converged
             f = perturb_fit!(f, fop, h)
-            if require_convergence && !f.converged
-                @info "pre_fit: not converged, epoch $i"
-                return fits
-            end
-        end
-
-        if any(isnan.(f.para))
-            @error "NaN parameters" f.para
+            @assert all(!isnan, f.para) """
+                NaN parameters $(f.para)
+                $(f.lp)
+                $(f.opt.init)
+                $(fop.upp)
+                $(fs[argmax(lps)])
+            """
         end
 
         push!(fits, f)
+        if require_convergence && !f.converged
+            @info "pre_fit: not converged, epoch $i"
+            return fits
+        end
     end
     return fits
 end

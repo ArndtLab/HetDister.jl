@@ -2,6 +2,11 @@ function fraction(mu, rho, n)
     mu/(mu+rho) * (rho/(mu+rho))^(n-1)
 end
 
+function ramp(iter, mu, rho)
+    # min(mu/20 * iter, rho)
+    rho
+end
+
 """
     demoinfer(segments::AbstractVector{<:Integer}, epochrange::AbstractRange{<:Integer}, mu::Float64, rho::Float64; kwargs...)
 
@@ -41,8 +46,8 @@ function demoinfer(segments::AbstractVector{<:Integer}, epochrange::AbstractRang
 end
 
 """
-    demoinfer(h::Histogram, epochrange, fop::FitOptions; iters=15, reltol=1e-1, corcut=4)
-    demoinfer(h, epochs, fop; iters=15, reltol=1e-1, corcut=4)
+    demoinfer(h::Histogram, epochrange, fop::FitOptions; iters=15, reltol=1e-1, corcut=4, finalize=false)
+    demoinfer(h, epochs, fop; iters=15, reltol=1e-1, corcut=4, finalize=false)
 
 Take an histogram of IBS segments, fit options, and infer demographic histories with
 piece-wise constant epochs where the number of epochs is `epochrange`.
@@ -67,12 +72,14 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochrange::AbstractRange{<:Integer}
         corrections = map(r->r.corrections, results),
         h_obs = results[1].h_obs,
         yth = map(r->r.yth, results),
-        deltas = map(r->r.deltas, results)
+        deltas = map(r->r.deltas, results),
+        conv = map(r->r.conv, results)
     )
 end
 
 function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
-    iters::Int = 15, reltol::Float64 = 1e-1, corcut::Int = 4
+    iters::Int = 15, reltol::Float64 = 1e-1, corcut::Int = 4, 
+    finalize::Bool = false
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
     @assert !isempty(h_obs.weights) "histogram is empty"
     @assert epochs > 0 "epochrange has to be strictly positive"
@@ -85,10 +92,10 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
 
     chain = []
     corrections = []
-    deltas = []
+    deltas = [Inf]
 
     ho_mod.weights .= h_obs.weights
-    corr = zeros(eltype(h_obs.weights), length(h_obs.weights))
+    corr = zeros(Float64, length(h_obs.weights))
     f = nothing
     yth = nothing
     for iter in 1:iters
@@ -99,16 +106,19 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
         push!(corrections, corr)
 
         weightsnaive = integral_ws(h_obs.edges[1], fop.mu, init)
-        mldsmcp!(bag, 1:fop.order, rs, h_obs.edges[1].edges, fop.mu, fop.rho, init)
+        rho = ramp(iter, fop.mu, fop.rho)
+        mldsmcp!(bag, 1:fop.order, rs, h_obs.edges[1].edges, fop.mu, rho, init)
 
         ho_mod.weights .= h_obs.weights
 
         yth = get_tmp(bag.ys, eltype(init))
-        corr = yth .* diff(h_obs.edges[1]) .- weightsnaive
+        corr = (yth .* diff(h_obs.edges[1]) .- weightsnaive .+ corrections[end]) ./ 2
         corr[1:corcut] .= 0.
         temp = ho_mod.weights .- corr
         temp .= round.(Int, temp)
         ho_mod.weights .= max.(temp, 0)
+        @assert all(isfinite, ho_mod.weights)
+        @assert all(!isnan, ho_mod.weights)
 
         if iter > 1
             deltacorr = corrections[iter] .- corrections[iter-1]
@@ -120,13 +130,27 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
         end
     end
 
+    conv = true
+    if length(chain) == iters
+        conv = false
+        if finalize
+            f = chain[argmin(deltas)]
+            setOptimOptions!(fop; iterations = 600, time_limit = 10000)
+            setnaive!(fop, false)
+            setnepochs!(fop, epochs)
+            setinit!(fop, get_para(f))
+            f = fit_model_epochs!(fop, h_obs)
+        end
+    end
+
     (;
         f,
         chain,
         corrections,
         h_obs,
         yth,
-        deltas
+        deltas,
+        conv
     )
 end
 
@@ -141,7 +165,7 @@ function correctestimate!(fop::FitOptions, fit::FitResult, h::Histogram)
         tn -> HetDister.llsmcp!(bag, rs, h.edges[1].edges, h.weights, fop.mu, fop.rho, tn),
         get_para(fit)
     )
-    return getFitResult(he, fit.para, fit.lp, fit.opt.mle, fop, h.weights)
+    return getFitResult(he, fit.para, fit.lp, fit.opt.optim_result, fop, h.weights)
 end
 
 """
