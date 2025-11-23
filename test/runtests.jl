@@ -18,7 +18,7 @@ TNs = [
     [3000000000, 20000, 60000, 8000, 8000, 16000, 1600, 2000, 400, 10000],
     [3000000000, 20000, 60000, 8000, 8000, 16000, 1600, 2000, 400, 8000, 60, 300]
 ]
-mus = [2.36e-8, 1.25e-8, 1e-8]
+mus = [2.36e-8, 1e-8, 5e-9]
 rhos = [1e-8]
 itr = Base.Iterators.product(mus,rhos,TNs)
 
@@ -72,12 +72,13 @@ end
 @testset "Test fit" begin
     h = Histogram([1,2,3,4])
     append!(h, [1,1,1,2,3,1,2])
-    fop = HetDister.FitOptions(7, 1.0, 1.0; order = 2, ndt = 10)
+    fop = FitOptions(7, 1.0, 1.0; order = 2, ndt = 10)
     f = fit_model_epochs!(fop, h.edges[1], h.weights, Val(true))
     f = fit_model_epochs!(fop, h)
-    @test HetDister.Optim.converged(f.opt.mle.optim_result)
+    @test HetDister.Optim.converged(f.opt.optim_result)
     perturb_fit!(f, fop, h)
     HetDister.setnaive!(fop, false)
+    HetDister.setOptimOptions!(fop, g_tol=1e-3)
     fit_model_epochs!(fop, h)
 end
 
@@ -117,7 +118,7 @@ end
     @test length(res.yth) == length(TN)÷2
     @test all(length.(res.chains) .== 1)
     @test all(length.(res.corrections) .== 1)
-    @test all(length.(res.deltas) .== 0)
+    @test all(length.(res.deltas) .== 1)
     @test all(length.(res.yth) .== length(res.h_obs.weights))
     @test !any(isinf.(evd.(res.fits)))
     best = compare_models(res.fits)
