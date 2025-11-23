@@ -46,8 +46,8 @@ function demoinfer(segments::AbstractVector{<:Integer}, epochrange::AbstractRang
 end
 
 """
-    demoinfer(h::Histogram, epochrange, fop::FitOptions; iters=15, reltol=1e-1, corcut=4, finalize=true)
-    demoinfer(h, epochs, fop; iters=15, reltol=1e-1, corcut=4, finalize=true)
+    demoinfer(h::Histogram, epochrange, fop::FitOptions; iters=15, reltol=1e-1, corcut=4, finalize=false)
+    demoinfer(h, epochs, fop; iters=15, reltol=1e-1, corcut=4, finalize=false)
 
 Take an histogram of IBS segments, fit options, and infer demographic histories with
 piece-wise constant epochs where the number of epochs is `epochrange`.
@@ -79,7 +79,7 @@ end
 
 function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
     iters::Int = 15, reltol::Float64 = 1e-1, corcut::Int = 4, 
-    finalize::Bool = true
+    finalize::Bool = false
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
     @assert !isempty(h_obs.weights) "histogram is empty"
     @assert epochs > 0 "epochrange has to be strictly positive"
