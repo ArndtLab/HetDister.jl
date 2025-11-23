@@ -230,7 +230,7 @@ function FitOptions(Ltot, mu, rho;
     low = LBound(Ltot,Nlow,Tlow,N)
     prior = Uniform.(low,upp)
     perturb = falses(N)
-    factors = mapreduce( i->fill(i, 10), vcat, [0.001, 0.01, 0.1, 0.5, 0.5, 0.9, 2] )
+    factors = [0.001, 0.01, 0.1, 0.5, 0.5, 0.9, 2] # mapreduce( i->fill(i, 10), vcat, [0.001, 0.01, 0.1, 0.5, 0.5, 0.9, 2] )
     delta = Deltas(factors, 0)
 
     return FitOptions(
@@ -271,8 +271,8 @@ function setinit!(fop::FitOptions, init::AbstractVector{Float64})
     @assert length(init) == npar(fop)
     fop.init .= init
     for i in eachindex(fop.init)
-        fop.init[i] < fop.low[i] ? fop.init[i] = fop.low[i] * 1.001 : nothing
-        fop.init[i] > fop.upp[i] ? fop.init[i] = fop.upp[i] * 0.999 : nothing
+        fop.init[i] <= fop.low[i] ? fop.init[i] = fop.low[i] * 1.001 : nothing
+        fop.init[i] >= fop.upp[i] ? fop.init[i] = fop.upp[i] * 0.999 : nothing
     end
     return nothing
 end
