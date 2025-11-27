@@ -82,11 +82,9 @@ function fit_model_epochs!(
     options::FitOptions, edges::AbstractVector{<:Integer}, counts::AbstractVector{<:Integer}, 
     ::Val{true}
 )
-
     # get a good initial guess
-    iszero(options.init) && setinit!(options, counts)
+    iszero(options.init) && initialize!(options, counts)
 
-    # run the optimization
     model = model_epochs(edges, counts, options.mu, options.prior)
     logger = ConsoleLogger(stdout, Logging.Error)
     mle = with_logger(logger) do
@@ -101,7 +99,7 @@ function fit_model_epochs!(
 )
 
     # get a good initial guess
-    iszero(options.init) && setinit!(options, counts)
+    iszero(options.init) && initialize!(options, counts)
 
     # run the optimization
     rs = midpoints(edges)
@@ -137,7 +135,9 @@ function getFitResult(hess, para, lp, optim_result, options::FitOptions, counts)
     manual_flag = true
     if isreal(lambdas)
         lambdas = real.(lambdas)
-        if any(lambdas .< 0)
+        # the smallest eigenvalue can be slightly negative
+        # because L is not a demographic parameter
+        if any(lambdas[2:end] .< 0) || lambdas[1] < -eps()
             manual_flag = false
         end
         lambdas[lambdas .<= 0] .= eps()

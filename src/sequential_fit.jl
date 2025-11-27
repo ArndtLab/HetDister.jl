@@ -166,7 +166,7 @@ function pre_fit!(fop::FitOptions, h::Histogram{T,1,E}, nfits::Int;
         if i == 1
             f = fit_model_epochs!(fop, h)
         else
-            ts = timesplitter(h, fits[i-1].para, fop)
+            ts = timesplitter(h, get_para(fits[i-1]), fop)
             if iszero(ts)
                 @info "pre_fit: no split found, epoch $i"
                 if !fop.force

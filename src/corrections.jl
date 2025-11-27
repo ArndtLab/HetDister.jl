@@ -3,7 +3,7 @@ function fraction(mu, rho, n)
 end
 
 function ramp(iter, mu, rho)
-    # min(mu/20 * iter, rho)
+    # min(mu/5 * iter, rho)
     rho
 end
 
@@ -46,8 +46,8 @@ function demoinfer(segments::AbstractVector{<:Integer}, epochrange::AbstractRang
 end
 
 """
-    demoinfer(h::Histogram, epochrange, fop::FitOptions; iters=15, reltol=1e-1, corcut=4, finalize=false)
-    demoinfer(h, epochs, fop; iters=15, reltol=1e-1, corcut=4, finalize=false)
+    demoinfer(h::Histogram, epochrange, fop::FitOptions; iters=15, reltol=1e-2, corcut=20, finalize=false)
+    demoinfer(h, epochs, fop; iters=15, reltol=1e-2, corcut=20, finalize=false)
 
 Take an histogram of IBS segments, fit options, and infer demographic histories with
 piece-wise constant epochs where the number of epochs is `epochrange`.
@@ -78,7 +78,7 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochrange::AbstractRange{<:Integer}
 end
 
 function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
-    iters::Int = 15, reltol::Float64 = 1e-1, corcut::Int = 4, 
+    iters::Int = 20, reltol::Float64 = 1e-2, corcut::Int = 20, 
     finalize::Bool = false
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
     @assert !isempty(h_obs.weights) "histogram is empty"
@@ -104,22 +104,6 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
         init = get_para(f)
         push!(chain, f)
         push!(corrections, corr)
-
-        weightsnaive = integral_ws(h_obs.edges[1], fop.mu, init)
-        rho = ramp(iter, fop.mu, fop.rho)
-        mldsmcp!(bag, 1:fop.order, rs, h_obs.edges[1].edges, fop.mu, rho, init)
-
-        ho_mod.weights .= h_obs.weights
-
-        yth = get_tmp(bag.ys, eltype(init))
-        corr = (yth .* diff(h_obs.edges[1]) .- weightsnaive .+ corrections[end]) ./ 2
-        corr[1:corcut] .= 0.
-        temp = ho_mod.weights .- corr
-        temp .= round.(Int, temp)
-        ho_mod.weights .= max.(temp, 0)
-        @assert all(isfinite, ho_mod.weights)
-        @assert all(!isnan, ho_mod.weights)
-
         if iter > 1
             deltacorr = corrections[iter] .- corrections[iter-1]
             delta = maximum(abs.(deltacorr))
@@ -128,6 +112,21 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
                 break
             end
         end
+
+        weightsnaive = integral_ws(h_obs.edges[1], fop.mu, init)
+        rho = ramp(iter, fop.mu, fop.rho)
+        mldsmcp!(bag, 1:fop.order, rs, h_obs.edges[1], fop.mu, rho, init)
+
+        ho_mod.weights .= h_obs.weights
+
+        yth = get_tmp(bag.ys, eltype(init))
+        corr = yth .* diff(h_obs.edges[1]) .- weightsnaive
+        corr[1:corcut] .= 0.
+        temp = ho_mod.weights .- corr
+        temp .= round.(Int, temp)
+        ho_mod.weights .= max.(temp, 0)
+        @assert all(isfinite, ho_mod.weights)
+        @assert all(!isnan, ho_mod.weights)
     end
 
     conv = true
@@ -177,9 +176,12 @@ Takes an iterable of `FitResult` as input.
 ### Theoretical explanation
 TBD
 """
-function compare_models(models)
+function compare_models(models, flags=trues(length(models)))
     ms = copy(models)
-    filter!(m->isfinite(evd(m)) && m.converged, ms)
+    mask = map(eachindex(ms)) do i
+        isfinite(evd(ms[i])) && ms[i].converged && flags[i]
+    end
+    ms = ms[mask]
     if isempty(ms)
         @warn "none of the models is meaningful"
         return nothing
@@ -187,7 +189,7 @@ function compare_models(models)
     best = 1
     lp = ms[1].lp
     ev = evd(ms[1])
-    mono = true
+    monotonic = true
     for i in eachindex(ms)
         if evd(ms[i]) > ev && ms[i].lp >= lp
             best = i
@@ -199,8 +201,11 @@ function compare_models(models)
                 This means that at least one likelihood optimization
                 has probably failed. You may want to change the fit options.
             """
-            mono = false
+            monotonic = false
         end
+    end
+    if !reduce(&, mask[1:best])
+        @warn "a simpler model did not converge"
     end
     return ms[best]
 end

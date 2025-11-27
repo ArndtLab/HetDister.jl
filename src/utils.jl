@@ -256,7 +256,7 @@ function FitOptions(Ltot, mu, rho;
     )
 end
 
-function setinit!(fop::FitOptions, weights::Vector{<:Integer})
+function initialize!(fop::FitOptions, weights::AbstractVector{<:Integer})
     vol = sum(weights)
     @assert vol != 0 "Empty histogram!"
     N = 1/(4*fop.mu*(fop.Ltot/vol)) # can be rough estimate depending on binning
