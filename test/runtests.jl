@@ -1,5 +1,5 @@
 using HetDister
-using HetDister: npar, setinit!, fit_model_epochs!, PInit, 
+using HetDister: npar, setinit!, initialize!, fit_model_epochs!, PInit, 
     setnepochs!, deviant, timesplitter, integral_ws, next!,
     reset_perturb!, perturb_fit!
 using PopSim
@@ -34,7 +34,7 @@ itr = Base.Iterators.product(mus,rhos,TNs)
     @test all(fop.low .!= zeros(npar(fop)))
     h = Histogram([1,2,3,4])
     append!(h, [1,1,1,2,3,1,2])
-    setinit!(fop, h.weights)
+    initialize!(fop, h.weights)
     @test any(fop.init .!= ones(npar(fop)))
     @test all(fop.init .> zeros(npar(fop)))
     @test all(fop.init .> fop.low)
