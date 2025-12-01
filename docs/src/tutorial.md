@@ -2,7 +2,8 @@
 
 To run the package, first install julia ([here](https://julialang.org/downloads/)).
 To create a local environment with the package `cd` into your work directory and 
-launch julia, then:
+launch julia, then install the package (and other useful packages to handle the
+data):
 ```julia
 using Pkg; Pkg.activate(".")
 ```
@@ -10,24 +11,52 @@ using Pkg; Pkg.activate(".")
 Pkg.Registry.add(RegistrySpec(url = "https://github.com/ArndtLab/JuliaRegistry.git"))
 ```
 ```julia
-Pkg.add("HetDister","HistogramBinnings","CSV","DataFrames")
-using HetDister, HistogramBinnings, CSV, DataFrames
+Pkg.add("HetDister","HistogramBinnings","CSV","DataFrames","DataFramesMeta")
+```
+You can now load the installed packages:
+```julia
+using HetDister, HistogramBinnings, CSV, DataFrames, DataFramesMeta
 ```
 
-The tool require three inputs: a (binned) vector of IBS segments lengths, a mutation rate and 
-a recombination rate (both per bp per generation).
+### Preparing input data
+For example, suppose you have a `.vcf` file with called variants you want to analyze. Then, in the most basic case, you may compute distances between heterozygous SNPs as follows:
 ```julia
-data = CSV.read("path", header=0, DataFrame; delim="\t")
-h_obs = HistogramBinnings.Histogram(LogEdgeVector(lo = 30, hi = 1_000_000, nbins = 200));
-append!(h_obs, data[:,1])
-```
-You can read a vector from a `.csv` file (first line) and then create an histogram with it.
+f = "/myproject/myfavouritespecies.vcf"
+df = CSV.read(f, DataFrame, 
+    delim='\t', 
+    comment="##",
+    missingstring=[".", "NaN"],
+    normalizenames=true,
+    ntasks = 1,
+    drop = [:INFO, :ID, :FILTER],
+)
 
-Set a value for the rates and run the inference:
+# remove homozygous variants
+@chain df begin
+    @rsubset! (:SampleName[1] == '1' && :SampleName[3] == '0') || (:SampleName[1] == '0' && :SampleName[3] == '1')
+end
+
+ils = df.POS[2:end] .- df.POS[1:end-1]
+@assert all(ils .> 0)
+```
+Now we have a vector of intervals `ils`.
+
+### Fitting demographic models
+The tool require three inputs: a vector of IBS segments lengths, a mutation rate and 
+a recombination rate (both per bp per generation). First, IBSs need to be placed into
+a histogram.
 ```julia
-mu = 2.36e-8
+h = adapt_histogram(ils)
+mu = 1e-8
 rho = 1e-8
-Ltot = sum(data[:,1])
-nepochs = 3
-res, chains = demoinfer(h_obs, nepochs, mu, rho, Ltot)
 ```
+Then we set up the `FitOptions` object that contains several parameters for the optimization.
+We stick with default values and only initialize with the three required inputs:
+```julia
+fop = FitOptions(sum(ils), mu, rho)
+```
+And we fit 8 different model, with a number of epochs in the range 1 to 8:
+```julia
+results = demoinfer(h_obs, 1:8, fop)
+```
+The fitted models can be accessed with `results.fits`.
