@@ -195,7 +195,7 @@ function compare_models(models, flags=trues(length(models)))
             best = i
             lp = ms[i].lp
             ev = evd(ms[i])
-        elseif ms[i].lp < lp && mono
+        elseif ms[i].lp < lp && monotonic
             @warn """
                 log-likelihood is not monotonic in the number of epochs.
                 This means that at least one likelihood optimization
