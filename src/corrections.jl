@@ -164,7 +164,7 @@ function correctestimate!(fop::FitOptions, fit::FitResult, h::Histogram)
         tn -> HetDister.llsmcp!(bag, rs, h.edges[1].edges, h.weights, fop.mu, fop.rho, tn),
         get_para(fit)
     )
-    return getFitResult(he, fit.para, fit.lp, fit.opt.optim_result, fop, h.weights)
+    return getFitResult(he, fit.para, fit.lp, fit.opt.optim_result, fop, h.weights, true)
 end
 
 """

@@ -10,6 +10,7 @@ using Random
 using Base.Threads
 using Logging
 using PreallocationTools
+using MvNormalCDF
 
 include("Spectra/Spectra.jl")
 using .Spectra
