@@ -72,15 +72,17 @@ end
 
 # --- fitting
 
-function fit_model_epochs!(options::FitOptions, h::Histogram{T,1,E}
+function fit_model_epochs!(options::FitOptions, h::Histogram{T,1,E};
+    stats = true
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
-    fit_model_epochs!(options, h.edges[1], h.weights, Val(isnaive(options)))
+    fit_model_epochs!(options, h.edges[1], h.weights, Val(isnaive(options)); stats)
 end
 
 
 function fit_model_epochs!(
     options::FitOptions, edges::AbstractVector{<:Integer}, counts::AbstractVector{<:Integer}, 
-    ::Val{true}
+    ::Val{true};
+    stats = true
 )
     # get a good initial guess
     iszero(options.init) && initialize!(options, counts)
@@ -90,12 +92,13 @@ function fit_model_epochs!(
     mle = with_logger(logger) do
         Optim.optimize(model, MLE(), options.init, options.solver, options.opt)
     end
-    return getFitResult(mle, options, counts)
+    return getFitResult(mle, options, counts; stats)
 end
 
 function fit_model_epochs!(
     options::FitOptions, edges::AbstractVector{<:Integer}, counts::AbstractVector{<:Integer}, 
-    ::Val{false}
+    ::Val{false};
+    stats = true
 )
 
     # get a good initial guess
@@ -109,20 +112,29 @@ function fit_model_epochs!(
     mle = with_logger(logger) do
         Optim.optimize(model, MLE(), options.init, options.solver, options.opt)
     end
-    return getFitResult(mle, options, counts)
+    return getFitResult(mle, options, counts; stats)
 end
 
-function getFitResult(mle, options::FitOptions, counts)
+function getFitResult(mle, options::FitOptions, counts; stats = true)
     para = vec(mle.values)
     lp = -minimum(mle.optim_result)
     
-    hess = getHessian(mle)
-    return getFitResult(hess, para, lp, mle.optim_result, options, counts)
+    if stats
+        hess = getHessian(mle)
+    else
+        hess = nothing
+    end
+    return getFitResult(hess, para, lp, mle.optim_result, options, counts, stats)
 end
 
-function getFitResult(hess, para, lp, optim_result, options::FitOptions, counts)
-    eigen_problem = eigen(hess)
-    lambdas = eigen_problem.values
+function getFitResult(hess, para, lp, optim_result, options::FitOptions, counts, stats)
+    if stats
+        eigen_problem = eigen(hess)
+        lambdas = eigen_problem.values
+    else
+        eigen_problem = nothing
+        lambdas = nothing
+    end
 
     at_uboundary = map((x,u) -> (x>u/1.05), para, options.upp)
     at_lboundary = map((l,x) -> (x<l*1.05), options.low, para)
@@ -132,8 +144,9 @@ function getFitResult(hess, para, lp, optim_result, options::FitOptions, counts)
     ci_low = fill(-Inf, length(para))
     ci_high = fill(Inf, length(para))
     logevidence = -Inf
+    marglike = 0
     manual_flag = true
-    if isreal(lambdas)
+    if stats && isreal(lambdas)
         lambdas = real.(lambdas)
         # the smallest eigenvalue can be slightly negative
         # because L is not a demographic parameter
@@ -141,9 +154,9 @@ function getFitResult(hess, para, lp, optim_result, options::FitOptions, counts)
             manual_flag = false
         end
         lambdas[lambdas .<= 0] .= eps()
-        vars_ = diag( eigen_problem.vectors *
+        covar = eigen_problem.vectors *
             diagm(inv.(lambdas)) * eigen_problem.vectors'
-        )
+        vars_ = diag(covar)
         stderrors = sqrt.(vars_)
         zscore = para ./ stderrors
         p = map(z -> StatsAPI.pvalue(Distributions.Normal(), z; tail=:right), zscore)
@@ -153,9 +166,10 @@ function getFitResult(hess, para, lp, optim_result, options::FitOptions, counts)
         ci_low = para .- q .* stderrors
         ci_high = para .+ q .* stderrors
     
+        marglike = mvnormcdf(para, covar, options.low, options.upp)
         # assuming uniform prior
-        logevidence = lp + sum(log.(1.0 ./ (options.upp - options.low)) .+ 0.5*log(2*pi)) - 
-            0.5 * sum(log.(lambdas))
+        logevidence = lp + sum(log.(1.0 ./ (options.upp - options.low))) +
+            log(marglike[1])
     end
 
     FitResult(
@@ -175,6 +189,7 @@ function getFitResult(hess, para, lp, optim_result, options::FitOptions, counts)
             at_uboundary, at_lboundary,
             options.low, options.upp, options.init,
             zscore, pvalues = p, ci_low, ci_high,
-            eigen_problem.values)
+            marglike,
+            hess)
     )
 end

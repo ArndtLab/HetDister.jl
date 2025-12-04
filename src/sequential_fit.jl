@@ -114,8 +114,8 @@ function perturb_fit!(f::FitResult, fop::FitOptions, h::Histogram;
             setinit!(fop, f.para)
             set_perturb!(fop, f)
             setinit!(fop, pinit)
-            f = fit_model_epochs!(fop, h)
-            if !isinf(evd(f)) & f.converged
+            f = fit_model_epochs!(fop, h; stats = false)
+            if f.converged
                 if by_pass
                     break
                 elseif !any(f.opt.at_lboundary[1:end-2])
@@ -191,7 +191,7 @@ function pre_fit!(fop::FitOptions, h::Histogram{T,1,E}, nfits::Int;
                 init = get_para(fits[i-1])
                 epochfinder!(init, N0, ts[j], fops[j])
                 setinit!(fops[j], init)
-                f = fit_model_epochs!(fops[j], h)
+                f = fit_model_epochs!(fops[j], h; stats = false)
                 # f = perturb_fit!(f, fops[j], h; by_pass=true)
                 fs[j] = f
             end
@@ -199,6 +199,8 @@ function pre_fit!(fop::FitOptions, h::Histogram{T,1,E}, nfits::Int;
             f = fs[argmax(lps)]
             @debug "best " ts[argmax(lps)] f.lp f.converged
             f = perturb_fit!(f, fop, h)
+            setinit!(fop, get_para(f))
+            f = fit_model_epochs!(fop, h)
             @assert all(!isnan, f.para) """
                 NaN parameters $(f.para)
                 $(f.lp)

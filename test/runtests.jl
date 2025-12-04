@@ -82,6 +82,16 @@ end
     fit_model_epochs!(fop, h)
 end
 
+@testset "Compare models" begin
+    m1 = FitResult(1,0,0,0,[],[],"",false,-1e4,-1e4,nothing)
+    m2 = FitResult(2,0,0,0,[],[],"",true,-1e3,-1e3,nothing)
+    m3 = FitResult(3,0,0,0,[],[],"",true,-1e2,-1e2,nothing)
+    m4 = FitResult(4,0,0,0,[],[],"",true,-1e1,-1e1,nothing)
+    flags = [true,true,true,false]
+    b = compare_models([m1, m2, m3, m4], flags)
+    @test !isnothing(b)
+end
+
 function get_sim(params::Vector, mu::Float64, rho::Float64)
 
     tnv = map(x -> ceil(Int, x), params)
