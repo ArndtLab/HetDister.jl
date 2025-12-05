@@ -90,7 +90,7 @@ function fit_model_epochs!(
     model = model_epochs(edges, counts, options.mu, options.prior)
     logger = ConsoleLogger(stdout, Logging.Error)
     mle = with_logger(logger) do
-        Optim.optimize(model, MLE(), options.init, options.solver, options.opt)
+        Optim.optimize(model, MLE, options.init, options.solver, options.opt)
     end
     return getFitResult(mle, options, counts; stats)
 end
@@ -110,7 +110,7 @@ function fit_model_epochs!(
     model = modelsmcp!(dc, rs, edges, counts, options.mu, options.rho, options.prior)
     logger = ConsoleLogger(stdout, Logging.Error)
     mle = with_logger(logger) do
-        Optim.optimize(model, MLE(), options.init, options.solver, options.opt)
+        Optim.optimize(model, MLE, options.init, options.solver, options.opt)
     end
     return getFitResult(mle, options, counts; stats)
 end
