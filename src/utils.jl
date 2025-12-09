@@ -198,12 +198,12 @@ mutation rate and recombination rate per base pair per generation.
 - `ndt::Int=800`: number of Legendre nodes to use when `naive` is false.
 
 ## Optim Arguments
-Additional keywords are passed to the `Optim.Options` constructor 
-[Optim.jl](https://github.com/JuliaNLSolvers/Optim.jl). Default are:
-- `iterations = 6000`
-- `time_limit = 60`
+Additional keywords are passed to `Optimization.solve`, see
+[Optimization.jl](https://docs.sciml.ai/Optimization/stable/API/solve/#Common-Solver-Options-(Solve-Keyword-Arguments)).
+and the specific `Optim.jl` section, which is the default optimizer. Defaults are:
+- `maxiters = 6000`
+- `maxtime = 60`
 - `g_tol = 5e-8`
-- `show_warnings = false`
 """
 function FitOptions(Ltot, mu, rho;
     Tlow = 10, Tupp = 1e7,
@@ -217,10 +217,9 @@ function FitOptions(Ltot, mu, rho;
     naive::Bool = true,
     order = 10,
     ndt = 800,
-    iterations = 6000,
-    time_limit = 60,
+    maxiters = 6000,
+    maxtime = 60,
     g_tol = 5e-8,
-    show_warnings = false,
     kwargs...
 )
     N = 2nepochs
@@ -242,7 +241,7 @@ function FitOptions(Ltot, mu, rho;
         perturb,
         delta,
         solver,
-        Optim.Options(;iterations, time_limit, g_tol, show_warnings, kwargs...),
+        (;maxiters, maxtime, g_tol, kwargs...),
         low,
         upp,
         prior,

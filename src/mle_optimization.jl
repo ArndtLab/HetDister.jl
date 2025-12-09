@@ -90,7 +90,9 @@ function fit_model_epochs!(
     model = model_epochs(edges, counts, options.mu, options.prior)
     logger = ConsoleLogger(stdout, Logging.Error)
     mle = with_logger(logger) do
-        Optim.optimize(model, MLE(), options.init, options.solver, options.opt)
+        Turing.Optimisation.estimate_mode(
+            model, MLE(), options.solver; initial_params=options.init, options.opt...
+        )
     end
     return getFitResult(mle, options, counts; stats)
 end
@@ -110,14 +112,16 @@ function fit_model_epochs!(
     model = modelsmcp!(dc, rs, edges, counts, options.mu, options.rho, options.prior)
     logger = ConsoleLogger(stdout, Logging.Error)
     mle = with_logger(logger) do
-        Optim.optimize(model, MLE(), options.init, options.solver, options.opt)
+        Turing.Optimisation.estimate_mode(
+            model, MLE(), options.solver; initial_params=options.init, options.opt...
+        )
     end
     return getFitResult(mle, options, counts; stats)
 end
 
 function getFitResult(mle, options::FitOptions, counts; stats = true)
-    para = vec(mle.values)
-    lp = -minimum(mle.optim_result)
+    para = mle.values
+    lp = mle.lp
     
     if stats
         hess = getHessian(mle)
@@ -179,8 +183,8 @@ function getFitResult(hess, para, lp, optim_result, options::FitOptions, counts,
         options.rho,
         para,
         stderrors,
-        summary(optim_result),
-        Optim.converged(optim_result) && manual_flag,
+        summary(options.solver),
+        Turing.Optimisation.SciMLBase.successful_retcode(optim_result) && manual_flag,
         lp,
         logevidence,
         (;
