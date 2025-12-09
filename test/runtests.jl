@@ -75,7 +75,7 @@ end
     fop = FitOptions(7, 1.0, 1.0; order = 2, ndt = 10)
     f = fit_model_epochs!(fop, h.edges[1], h.weights, Val(true))
     f = fit_model_epochs!(fop, h)
-    @test HetDister.Optim.converged(f.opt.optim_result)
+    @test HetDister.Turing.Optimisation.SciMLBase.successful_retcode(f.opt.optim_result)
     perturb_fit!(f, fop, h)
     HetDister.setnaive!(fop, false)
     HetDister.setOptimOptions!(fop, g_tol=1e-3)
