@@ -134,7 +134,7 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
         conv = false
         if finalize
             f = chain[argmin(deltas)]
-            setOptimOptions!(fop; iterations = 600, time_limit = 10000)
+            setOptimOptions!(fop; maxiters = 600, maxtime = 10000)
             setnaive!(fop, false)
             setnepochs!(fop, epochs)
             setinit!(fop, get_para(f))

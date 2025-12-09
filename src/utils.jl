@@ -344,11 +344,10 @@ function setnaive!(fop::FitOptions, flag::Bool)
 end
 
 function setOptimOptions!(fop::FitOptions;
-    iterations = 6000,
-    time_limit = 60,
+    maxiters = 6000,
+    maxtime = 60,
     g_tol = 5e-8,
-    show_warnings = false,
     kwargs...
 )
-    fop.opt = Optim.Options(; iterations, time_limit, g_tol, show_warnings, kwargs...)
+    fop.opt = (; maxiters, maxtime, g_tol, kwargs...)
 end
