@@ -5,13 +5,13 @@ end
 # models
 
 @model function model_epochs(edges::AbstractVector{<:Integer}, 
-    counts::AbstractVector{<:Integer}, mu::Float64,
+    counts::AbstractVector{<:Integer}, mu::Float64, locut::Int,
     TNdists::Vector{<:Distribution}
 )
     TN ~ arraydist(TNdists)
     a = 0.5
-    last_hid_I = laplacekingmanint(edges[1] - a, mu, TN)
-    for i in eachindex(counts)
+    last_hid_I = laplacekingmanint(edges[locut] - a, mu, TN)
+    for i in locut:length(counts)
         @inbounds this_hid_I = laplacekingmanint(edges[i+1] - a, mu, TN)
         m = this_hid_I - last_hid_I
         last_hid_I = this_hid_I
@@ -29,13 +29,13 @@ end
 
 @model function modelsmcp!(dc::IntegralArrays, rs::AbstractVector{<:Real}, 
     edges::AbstractVector{<:Integer}, counts::AbstractVector{<:Integer},
-    mu::Float64, rho::Float64, TNdists::Vector{<:Distribution}
+    mu::Float64, rho::Float64, locut::Int, TNdists::Vector{<:Distribution}
 )
     TN ~ arraydist(TNdists)
     mldsmcp!(dc, 1:dc.order, rs, edges, mu, rho, TN)
     m = get_tmp(dc.ys, eltype(TN))
     m .*= diff(edges)
-    for i in eachindex(counts)
+    for i in locut:length(counts)
         if (m[i] < 0) || isnan(m[i])
             # this happens when evaluating the model
             # after optimization, in the unconstrained
@@ -50,13 +50,13 @@ end
 
 function llsmcp!(dc::IntegralArrays, rs::AbstractVector{<:Real}, 
     edges::AbstractVector{<:Integer}, counts::AbstractVector{<:Integer},
-    mu::Float64, rho::Float64, TN::AbstractVector{<:Real}
+    mu::Float64, rho::Float64, locut::Int, TN::AbstractVector{<:Real}
 )
     mldsmcp!(dc, 1:dc.order, rs, edges, mu, rho, TN)
     m = get_tmp(dc.ys, eltype(TN))
     m .*= diff(edges)
     ll = 0
-    for i in eachindex(counts)
+    for i in locut:length(counts)
         if (m[i] < 0) || isnan(m[i])
             # this happens when evaluating the model
             # after optimization, in the unconstrained
@@ -87,7 +87,7 @@ function fit_model_epochs!(
     # get a good initial guess
     iszero(options.init) && initialize!(options, counts)
 
-    model = model_epochs(edges, counts, options.mu, options.prior)
+    model = model_epochs(edges, counts, options.mu, options.locut, options.prior)
     logger = ConsoleLogger(stdout, Logging.Error)
     mle = with_logger(logger) do
         Turing.Optimisation.estimate_mode(
@@ -109,7 +109,7 @@ function fit_model_epochs!(
     # run the optimization
     rs = midpoints(edges)
     dc = IntegralArrays(options.order, options.ndt, length(rs), Val{length(options.init)}, 3)
-    model = modelsmcp!(dc, rs, edges, counts, options.mu, options.rho, options.prior)
+    model = modelsmcp!(dc, rs, edges, counts, options.mu, options.rho, options.locut, options.prior)
     logger = ConsoleLogger(stdout, Logging.Error)
     mle = with_logger(logger) do
         Turing.Optimisation.estimate_mode(
