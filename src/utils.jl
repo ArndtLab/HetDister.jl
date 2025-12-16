@@ -156,6 +156,7 @@ mutable struct FitOptions
     naive::Bool
     order::Int
     ndt::Int
+    locut::Int
 end
 
 function Base.show(io::IO, fop::FitOptions)
@@ -196,6 +197,7 @@ mutation rate and recombination rate per base pair per generation.
   when `naive` is false, i.e. number of intermediate recombination events
   plus one.
 - `ndt::Int=800`: number of Legendre nodes to use when `naive` is false.
+- `locut::Int=1`: index of the first histogram bin to consider in the fit.
 
 ## Optim Arguments
 Additional keywords are passed to `Optimization.solve`, see
@@ -217,6 +219,7 @@ function FitOptions(Ltot, mu, rho;
     naive::Bool = true,
     order = 10,
     ndt = 800,
+    locut = 1,
     maxiters = 6000,
     maxtime = 60,
     g_tol = 5e-8,
@@ -251,7 +254,8 @@ function FitOptions(Ltot, mu, rho;
         maxnts,
         naive,
         order,
-        ndt
+        ndt,
+        locut
     )
 end
 

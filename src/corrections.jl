@@ -161,7 +161,7 @@ function correctestimate!(fop::FitOptions, fit::FitResult, h::Histogram)
     setinit!(fop, fit.para)
 
     he = ForwardDiff.hessian(
-        tn -> HetDister.llsmcp!(bag, rs, h.edges[1].edges, h.weights, fop.mu, fop.rho, tn),
+        tn -> llsmcp!(bag, rs, h.edges[1].edges, h.weights, fop.mu, fop.rho, fop.locut, tn),
         get_para(fit)
     )
     return getFitResult(he, fit.para, fit.lp, fit.opt.optim_result, fop, h.weights, true)
