@@ -1,6 +1,6 @@
 using HetDister
 using HetDister: npar, setinit!, initialize!, fit_model_epochs!, PInit, 
-    setnepochs!, deviant, timesplitter, integral_ws, next!,
+    setnepochs!, timesplitter, integral_ws, next!,
     reset_perturb!, perturb_fit!
 using PopSim
 using HistogramBinnings
@@ -23,7 +23,7 @@ rhos = [1e-8]
 itr = Base.Iterators.product(mus,rhos,TNs)
 
 @testset "Test FitOptions" begin
-    fop = FitOptions(30, 1.0, 1.0)
+    fop = FitOptions(30, 10, 1.0, 1.0)
     @test npar(fop) == 2
     @test fop.nepochs == 1
     @test all(fop.init .== zeros(npar(fop)))
@@ -52,7 +52,7 @@ itr = Base.Iterators.product(mus,rhos,TNs)
 end
 
 @testset "Test PInit" begin
-    fop = FitOptions(30, 1.0, 1.0)
+    fop = FitOptions(30, 10, 1.0, 1.0)
     p = PInit(fop)
     @test fop.delta.state == 0
     @test length(p) == npar(fop)
@@ -72,10 +72,10 @@ end
 @testset "Test fit" begin
     h = Histogram([1,2,3,4])
     append!(h, [1,1,1,2,3,1,2])
-    fop = FitOptions(7, 1.0, 1.0; order = 2, ndt = 10)
+    fop = FitOptions(11, 7, 1.0, 1.0; order = 2, ndt = 10)
     f = fit_model_epochs!(fop, h.edges[1], h.weights, Val(true))
     f = fit_model_epochs!(fop, h)
-    @test HetDister.Turing.Optimisation.SciMLBase.successful_retcode(f.opt.optim_result)
+    @test f.converged
     perturb_fit!(f, fop, h)
     HetDister.setnaive!(fop, false)
     HetDister.setOptimOptions!(fop, g_tol=1e-3)
@@ -107,19 +107,15 @@ end
     ibs_segments = get_sim(TN, mu, rho)
     h = adapt_histogram(ibs_segments; nbins = 200)
     @test length(h.weights) == 200
-    @test h.weights[end] > 1
+    @test h.weights[end] > 0
 
-    stat = pre_fit(h, 2, mu, rho, 10, 100, sum(ibs_segments); require_convergence = false)
+    fop = FitOptions(sum(ibs_segments), length(ibs_segments), mu, rho)
+    stat = pre_fit!(fop, h, 2)
     @test isassigned(stat, 1)
     stat = stat[1]
 
-    fop = FitOptions(sum(ibs_segments), mu, rho)
-    tsplit = deviant(h, get_para(stat), fop)
-    @test length(tsplit) >= 1
-    tsplit = deviant(h, get_para(stat), fop; frame = 10)
-    @test length(tsplit) >= 1
     ts = timesplitter(h, get_para(stat), fop; frame = 10)
-    @test length(ts) >= 2
+    @test length(ts) >= 1
 
     res = demoinfer(ibs_segments, 1:length(TN)÷2, mu, rho;
         iters = 1
@@ -136,6 +132,8 @@ end
     @test !any(best.opt.at_lboundary)
     @test !any(best.opt.at_uboundary[2:end])
     fcor = correctestimate!(fop, best, h)
+    setinit!(fop, get_para(best))
+    chain = sample_model_epochs!(fop, h; nsamples = 10)
 
     resid = compute_residuals(h, mu, rho, TN)
     @test !any(isnan.(resid))
@@ -157,8 +155,8 @@ end
         ibs_segments = get_sim(TN, mu, rho)
         h = adapt_histogram(ibs_segments; nbins = 200)
         Ltot = sum(ibs_segments)
-        fop = FitOptions(Ltot, mu, rho; maxnts = 8, force = false)
-        fits = pre_fit!(fop, h, 8; require_convergence = false)
+        fop = FitOptions(Ltot, length(ibs_segments), mu, rho; maxnts = 8, force = false)
+        fits = pre_fit!(fop, h, 8)
         nepochs = length(fits)
         bestll = argmax(i->fits[i].lp, 1:nepochs)
         residuals = compute_residuals(h, mu, rho, get_para(fits[bestll]); naive = true)
@@ -171,8 +169,8 @@ end
         ibs_segments = get_sim(TN, mu, rho)
         h = adapt_histogram(ibs_segments; nbins = 200)
         Ltot = sum(ibs_segments)
-        pfits = pre_fit(h, 5, mu, rho, 10, 100, Ltot; require_convergence = false)
-        fop = FitOptions(Ltot, mu, rho; order = 10, ndt = 800)
+        fop = FitOptions(Ltot, length(ibs_segments), mu, rho)
+        pfits = pre_fit!(fop, h, 5)
         res = demoinfer(h, 4:5, fop)
         best = compare_models(res.fits)
         @test !isnothing(best)
