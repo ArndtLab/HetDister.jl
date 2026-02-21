@@ -20,12 +20,16 @@ include("mle_optimization.jl")
 include("sequential_fit.jl")
 include("corrections.jl")
 
-export pre_fit, pre_fit!, demoinfer, compare_models, correctestimate!,
-    get_para, evd, sds, pop_sizes, durations,
+export pre_fit!, demoinfer, compare_models, sample_model_epochs!,
+    correctestimate!,
+    get_para, evd, sds, pop_sizes, durations, get_covar,
     compute_residuals,
     adapt_histogram,
     FitResult, FitOptions,
-    laplacekingman, mldsmcp
+    laplacekingman, mldsmcp,
+    extbps,
+    lineages, cumulative_lineages, crediblehistory,
+    sampleN, quantilesN
 
 
 function integral_ws(edges::AbstractVector{<:Real}, mu::Float64, TN::Vector)
@@ -85,6 +89,25 @@ function compute_residuals(h1::Histogram, h2::Histogram; fc1 = 1.0, fc2 = 1.0)
     return residuals
 end
 
+"""
+    residstructure(residuals::AbstractVector{<:Real}; frame::Int = length(residuals)÷20)
+
+Compute the p-values for the correlation between adjacent residuals in a sliding window of size `frame`.
+The p-value is the right tail of the t-distribution.
+"""
+function residstructure(residuals::AbstractVector{<:Real};
+    frame::Int = length(residuals)÷20
+)
+    ps = ones(length(residuals)-frame)
+    for i in eachindex(ps)
+        c = cor(residuals[i+1:i+frame],residuals[i:i+frame-1])
+        t = c * sqrt((frame - 2)/(1-c^2))
+        p = StatsAPI.pvalue(Distributions.TDist(frame - 2), t; tail=:right)
+        ps[i] = p
+    end
+    ps
+end
+
 function CustomEdgeVector(; lo = 1, hi = 10, nbins::Integer)
     @assert (lo > 0) && (hi > 0) && (nbins > 0) && (hi > lo)
     lo = floor(Int, lo)
@@ -103,14 +126,23 @@ function CustomEdgeVector(; lo = 1, hi = 10, nbins::Integer)
 end
 
 """
-    adapt_histogram(segments::AbstractVector{<:Integer}; lo::Int=1, hi::Int=50_000_000, nbins::Int=800, tailthr::Int=1)
+    adapt_histogram(segments::AbstractVector{<:Integer}; lo::Int=1, hi::Int=50_000_000, nbins::Int=0, tailthr::Int=0)
 
 Build an histogram from `segments` logbinned between `lo` and `hi`
-with `nbins` bins.
+with `nbins` bins. `nbins` is automatically determined by default.
 
-The upper limit is adapted to ensure logspacing with the requested `nbins`.
+The upper limit is adapted to ensure logspacing with the requested `nbins`. The adaptive strategy is such that the
+last bin has at least `tailthr` segments.
 """
-function adapt_histogram(segments::AbstractVector{<:Integer}; lo::Int=1, hi::Int=50_000_000, nbins::Int=800, tailthr::Int=1)
+function adapt_histogram(segments::AbstractVector{<:Integer}; lo::Int=1, hi::Int=50_000_000, nbins::Int=0, tailthr::Int=0)
+    if iszero(nbins)
+        if length(segments) > 1e7
+            nbins = 1600
+        else
+            nbins = 800
+        end
+    end
+    @assert nbins > 0
     h_obs = Histogram(CustomEdgeVector(;lo, hi, nbins))
     @assert !isempty(segments)
     append!(h_obs, segments)
@@ -149,10 +181,18 @@ function compare_mlds(segs1::AbstractVector{<:Integer}, segs2::AbstractVector{<:
     append!(h2, segs2)
     return compare_mlds!(h1, h2, theta1, theta2)
 end
-function compare_mlds!(h1, h2, theta1, theta2) # add !
+
+"""
+    compare_mlds!(h1::Histogram, h2::Histogram, theta1::Float64, theta2::Float64)
+
+The same as `compare_mlds`, except that it takes two histograms and mutates them.
+Return values are the same as `compare_mlds`.
+"""
+function compare_mlds!(h1, h2, theta1, theta2)
     # 1 is the target lattice, i.e. with biggest theta
     length(h1.weights) == length(h2.weights) && @assert any(h1.weights .!= h2.weights)
     @assert theta1 != theta2
+    @assert any(h1.weights .> 0) && any(h2.weights .> 0)
     swap = false
     if theta1 < theta2
         temp = deepcopy(h1)
@@ -166,9 +206,9 @@ function compare_mlds!(h1, h2, theta1, theta2) # add !
     tw = zeros(Float64, length(h1.weights))
     w2 = h2.weights
     factor = sum(h1.weights) / sum(h2.weights)
-    t = 1
-    f = 1
-    while t < length(edges1) && f < length(edges2) && h1.weights[t] > 0 && w2[f] > 0
+    t = 1 # target
+    f = 1 # following
+    while t < length(edges1) && f < length(edges2)
         st, en = edges1[t], edges1[t+1]
         width = edges2[f+1] - edges2[f]
         if st <= edges2[f] < edges2[f+1] < en
@@ -200,7 +240,7 @@ function compare_mlds!(h1, h2, theta1, theta2) # add !
     
     rs = midpoints(h1.edges[1]) * theta1
     sigmasq = h1.weights .+ tw * factor^2
-    maxl = min(t,f,length(h1.weights),length(tw))
+    maxl = min(findlast(w2 .> 0), findlast(h1.weights .> 0))
     if swap
         return rs[1:maxl], tw[1:maxl] * factor, h1.weights[1:maxl], sigmasq[1:maxl]
     else
