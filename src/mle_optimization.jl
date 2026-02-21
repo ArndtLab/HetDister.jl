@@ -149,13 +149,11 @@ function getFitResult(hess, para, lp, optim_result, options::FitOptions, counts,
     ci_high = fill(Inf, length(para))
     logevidence = -Inf
     marglike = 0
-    manual_flag = true
+    convex_opt = false
     if stats && isreal(lambdas)
         lambdas = real.(lambdas)
-        # the smallest eigenvalue can be slightly negative
-        # because L is not a demographic parameter
-        if any(lambdas[2:end] .< 0) || lambdas[1] < -eps()
-            manual_flag = false
+        if all(lambdas .> 0)
+            convex_opt = true
         end
         lambdas[lambdas .<= 0] .= eps()
         covar = eigen_problem.vectors *
@@ -184,7 +182,7 @@ function getFitResult(hess, para, lp, optim_result, options::FitOptions, counts,
         para,
         stderrors,
         summary(options.solver),
-        Turing.Optimisation.SciMLBase.successful_retcode(optim_result) && manual_flag,
+        Turing.Optimisation.SciMLBase.successful_retcode(optim_result),
         lp,
         logevidence,
         (;
@@ -193,7 +191,45 @@ function getFitResult(hess, para, lp, optim_result, options::FitOptions, counts,
             at_uboundary, at_lboundary,
             options.low, options.upp, options.init,
             zscore, pvalues = p, ci_low, ci_high,
-            marglike,
+            convex_opt, marglike,
             hess)
     )
+end
+
+"""
+    sample_model_epochs!(options::FitOptions, h::Histogram{T,1,E}; nsamples)
+
+Sample `nsamples` from the posterior distribution of the parameters of the model
+of piece-wise constant epochs, given the observed histogram `h` and the fit
+options `options`. See also [`FitOptions`](@ref) for how to specify the fit
+options and `setinit!` to specify the initial parameters. Return a `Chains`
+object from the `MCMCDiagnostics` module of `Turing`, which contains the samples
+from the posterior distribution.
+"""
+function sample_model_epochs!(options::FitOptions, h::Histogram{T,1,E};
+    nsamples::Int=10_000
+) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
+    sample_model_epochs!(options, h.edges[1], h.weights, Val(isnaive(options)); nsamples)
+end
+
+function sample_model_epochs!(
+    options::FitOptions, edges::AbstractVector{<:Integer}, counts::AbstractVector{<:Integer},
+    ::Val{true};
+    nsamples::Int=10_000
+)
+    # get a good initial guess
+    iszero(options.init) && initialize!(options, counts)
+
+    model = model_epochs(edges, counts, options.mu, options.locut, options.prior)
+    logger = ConsoleLogger(stdout, Logging.Error)
+    mle = with_logger(logger) do
+        Turing.Optimisation.estimate_mode(
+            model, MLE(), options.solver; initial_params=options.init, options.opt...
+        )
+    end
+    init_ = InitFromParams(mle)
+    chain = with_logger(logger) do
+        sample(model, NUTS(), nsamples; initial_params=init_)
+    end
+    return chain
 end
