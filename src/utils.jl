@@ -73,6 +73,26 @@ durations(fit::FitResult) = fit.para[3:2:end-1]
 
 npar(fit::FitResult) = 2fit.nepochs
 
+"""
+    get_covar(fit::FitResult)
+Return the covariance matrix of the parameters of the fit, computed as the
+inverse of the likelihood Hessian at the optimum.
+"""
+function get_covar(fit::FitResult)
+    hess = fit.opt.hessian
+    eigen_problem = eigen(hess)
+    lambdas = eigen_problem.values
+    lambdas = real.(lambdas)
+    lambdas[lambdas .<= 0] .= eps()
+    covar = eigen_problem.vectors *
+        diagm(inv.(lambdas)) * eigen_problem.vectors'
+    return covar
+end
+
+function fraction(mu, rho, n)
+    mu/(mu+rho) * (rho/(mu+rho))^(n-1)
+end
+
 mutable struct Deltas
     factors::Vector{Float64}
     state::Integer
@@ -150,7 +170,6 @@ mutable struct FitOptions
     upp::UBound
     prior::Vector{<:Distribution}
     level::Float64
-    smallest_segment::Int
     force::Bool
     maxnts::Int
     naive::Bool
@@ -174,29 +193,26 @@ end
 npar(fop::FitOptions) = 2fop.nepochs
 
 """
-    FitOptions(Ltot, mu, rho; kwargs...)
+    FitOptions(Ltot, nhet, mu, rho; kwargs...)
 
 Construct an an object of type FitOptions, requiring 
-total genome length `Ltot` in base pairs,
-mutation rate and recombination rate per base pair per generation.
+total genome length `Ltot` in base pairs, number of
+heterozygous sites `nhet`, mutation rate `mu` and
+recombination rate `rho` per base pair per generation.
 
 ## Optional Arguments
 - `Tlow::Number=10`, `Tupp::Number=1e7`: The lower and upper bounds for the duration of epochs.
 - `Nlow::Number=10`, `Nupp::Number=1e8`: The lower and upper bounds for the population sizes.
 - `level::Float64=0.95`: The confidence level for the confidence intervals on the parameters estimates.
 - `solver`: The solver to use for the optimization, default is `LBFGS()`.
-- `smallest_segment::Int=1`: The smallest segment size present in the histogram to consider 
-  for the signal search.
 - `force::Bool=true`: if true try to fit further epochs even when no signal is found.
-- `maxnts::Int=10`: The maximum number of new time splits to consider when adding a new epoch.
+- `maxnts::Int=5`: The maximum number of new time splits to consider when adding a new epoch.
   Higher is greedier.
-- `naive::Bool=true`: if true the expected weights are computed
-  using the closed form integral, otherwise using higher order transition
-  probabilities from SMC' theory (slower).
-- `order::Int=10`: maximum number of higher order corrections to use
-  when `naive` is false, i.e. number of intermediate recombination events
-  plus one.
-- `ndt::Int=800`: number of Legendre nodes to use when `naive` is false.
+- `order::Int=0`: maximum number of higher order SMC' corrections to account for
+  (i.e. number of intermediate recombination events plus one). When zero, it
+  is set automatically.
+- `ndt::Int=0`: number of Legendre nodes to use for numerical integration.
+  When zero, it is set automatically.
 - `locut::Int=1`: index of the first histogram bin to consider in the fit.
 
 ## Optim Arguments
@@ -207,19 +223,18 @@ and the specific `Optim.jl` section, which is the default optimizer. Defaults ar
 - `maxtime = 60`
 - `g_tol = 5e-8`
 """
-function FitOptions(Ltot, mu, rho;
+function FitOptions(Ltot, nhet, mu, rho;
     Tlow = 10, Tupp = 1e7,
     Nlow = 10, Nupp = 1e8,
     level = 0.95,
     solver = LBFGS(),
     nepochs::Int = 1,
-    smallest_segment::Int = 1,
     force::Bool = true,
-    maxnts::Int = 15,
+    maxnts::Int = 5,
     naive::Bool = true,
-    order = 10,
-    ndt = 800,
-    locut = 1,
+    order::Int = 0,
+    ndt::Int = 0,
+    locut::Int = 1,
     maxiters = 6000,
     maxtime = 60,
     g_tol = 5e-8,
@@ -235,6 +250,20 @@ function FitOptions(Ltot, mu, rho;
     factors = [0.001, 0.01, 0.1, 0.5, 0.5, 0.9, 2] # mapreduce( i->fill(i, 10), vcat, [0.001, 0.01, 0.1, 0.5, 0.5, 0.9, 2] )
     delta = Deltas(factors, 0)
 
+    if iszero(ndt)
+        if nhet > 1e7
+            ndt = 1600
+        else
+            ndt = 800
+        end
+    end
+    cutoff = 2e-5 # fraction of segments contributing to higher orders
+    if iszero(order)
+        o = findfirst(map(i->fraction(mu,rho,i),1:50) .< cutoff)
+        isnothing(o) && (o = 50)
+        order = o
+    end
+
     return FitOptions(
         nepochs,
         mu,
@@ -249,7 +278,6 @@ function FitOptions(Ltot, mu, rho;
         upp,
         prior,
         level,
-        smallest_segment,
         force,
         maxnts,
         naive,
@@ -270,6 +298,12 @@ function initialize!(fop::FitOptions, weights::AbstractVector{<:Integer})
     return nothing
 end
 
+
+"""
+    setinit!(fop::FitOptions, init::AbstractVector{Float64})
+
+Set the initial vector of parameters for the optimization which takes the `FitOptions` object `fop`.
+"""
 function setinit!(fop::FitOptions, init::AbstractVector{Float64})
     @assert length(init) == npar(fop)
     fop.init .= init
