@@ -1,7 +1,3 @@
-function fraction(mu, rho, n)
-    mu/(mu+rho) * (rho/(mu+rho))^(n-1)
-end
-
 function ramp(iter, mu, rho)
     # min(mu/5 * iter, rho)
     rho
@@ -10,25 +6,40 @@ end
 """
     demoinfer(segments::AbstractVector{<:Integer}, epochrange::AbstractRange{<:Integer}, mu::Float64, rho::Float64; kwargs...)
 
-Make an histogram with IBS `segments` and infer demographic histories with
+Make an histogram with IBS `segments` and infer demographic models with
 piece-wise constant epochs where the number of epochs is `epochrange`.
 
-Return a named tuple which contains a vector of `FitResult` in the field `fits`
-(see [`FitResult`](@ref)).
+Return a named tuple which contains the fields:
+- `fits`: a vector of `FitResult` (see [`FitResult`](@ref))
+- `chains`: a vector of vectors of `FitResult`, one for each iteration
+  of the correction procedure, and one chain per model
+- `corrections`: a vector of vectors of corrections, one for each iteration
+  of the correction procedure, and one vector of corrections per model.
+  Corrections are histogram counts, therefore they have the same shape.
+- `h_obs`: the histogram of the observed segments
+- `h_mods`: a vector of modified histograms, one for each model, with
+  higher order corrections applied.
+- `yth`: a vector of vectors of the expected weights, one for each model
+- `deltas`: a vector of vectors of the maximum absolute difference between
+  corrections in consecutive iterations, and for each model.
+- `conv`: a vector of booleans, one for each model, indicating whether the
+  maximum iterations were reached (false) or whether the procedure 
+  converged before (true).
+
 
 # Optional Arguments
 - `fop::FitOptions = FitOptions(sum(segments), mu, rho)`: the fit options, see [`FitOptions`](@ref).
 - `lo::Int=1`: The lowest segment length to be considered in the histogram
 - `hi::Int=50_000_000`: The highest segment length to be considered in the histogram
-- `nbins::Int=400`: The number of bins to use in the histogram
-- `iters::Int=10`: The number of iterations to perform. It might converge earlier
-- `setorder::Bool=true`: the order at which the SMC' approximation is truncated will be set automatically according to the cutoff
-- `cutoff=2e-5`: when `setorder` a fraction of segments smaller than `cutoff` will be ignored to set the order 
+- `nbins::Int=fop.ndt`: The number of bins to use in the histogram
+- `iters::Int=20`: The number of iterations to perform. It might converge earlier
+- `reltol::Float64=1e-2`: The relative tolerance to use for convergence,
+  i.e. the maximum absolute difference between corrections in consecutive iterations.
+- `corcut::Int=fop.locut-1`: The index of the last histogram bin to apply corrections to.
 """
 function demoinfer(segments::AbstractVector{<:Integer}, epochrange::AbstractRange{<:Integer}, mu::Float64, rho::Float64;
-    fop::FitOptions = FitOptions(sum(segments), mu, rho),
-    lo::Int = 1, hi::Int = 50_000_000, nbins::Int = 400,
-    setorder::Bool = true, cutoff = 2e-5,
+    fop::FitOptions = FitOptions(sum(segments), length(segments), mu, rho),
+    lo::Int = 1, hi::Int = 50_000_000, nbins::Int = fop.ndt,
     kwargs...
 )
     h = adapt_histogram(segments; lo, hi, nbins)
@@ -36,27 +47,19 @@ function demoinfer(segments::AbstractVector{<:Integer}, epochrange::AbstractRang
         @warn "inconsistent Ltot and segments, taking sum(segments)"
         fop.Ltot = sum(segments)
     end
-    if setorder
-        o = findfirst(map(i->fraction(fop.mu,fop.rho,i),1:30) .< cutoff)
-        isnothing(o) && (o = 30)
-        fop.order = o
-        @info "setting order to $o"
-    end
     return demoinfer(h, epochrange, fop; kwargs...)
 end
 
 """
-    demoinfer(h::Histogram, epochrange, fop::FitOptions; iters=15, reltol=1e-2, corcut=20, finalize=false)
-    demoinfer(h, epochs, fop; iters=15, reltol=1e-2, corcut=20, finalize=false)
+    demoinfer(h::Histogram, epochrange, fop::FitOptions; iters=20, reltol=1e-2, corcut=fop.locut-1, finalize=false)
+    demoinfer(h, epochs, fop; iters=20, reltol=1e-2, corcut=fop.locut-1, finalize=false)
 
-Take an histogram of IBS segments, fit options, and infer demographic histories with
+Take an histogram of IBS segments, fit options, and infer demographic models with
 piece-wise constant epochs where the number of epochs is `epochrange`.
-See [`FitOptions`](@ref).
-Return a named tuple which contains a vector of `FitResult` in the field `fits`
-(see [`FitResult`](@ref)).
+Return a named tuple as above.
 
 If `epochrange` is a integer, then it fits only the model with that number of epochs.
-Return a named tuple with a `FitResult` object in the field `f`.
+In this case the returned named tuple contains only one element per field, instead of a vector.
 """
 function demoinfer(h_obs::Histogram{T,1,E}, epochrange::AbstractRange{<:Integer}, fop_::FitOptions;
     kwargs...
@@ -71,6 +74,7 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochrange::AbstractRange{<:Integer}
         chains = map(r->r.chain, results),
         corrections = map(r->r.corrections, results),
         h_obs = results[1].h_obs,
+        h_mods = map(r->r.h_mod, results),
         yth = map(r->r.yth, results),
         deltas = map(r->r.deltas, results),
         conv = map(r->r.conv, results)
@@ -78,13 +82,13 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochrange::AbstractRange{<:Integer}
 end
 
 function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
-    iters::Int = 20, reltol::Float64 = 1e-2, corcut::Int = 20, 
+    iters::Int = 20, reltol::Float64 = 1e-2, corcut::Int = fop_.locut-1, 
     finalize::Bool = false
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
     @assert !isempty(h_obs.weights) "histogram is empty"
     @assert epochs > 0 "epochrange has to be strictly positive"
 
-    ho_mod = Histogram(h_obs.edges)
+    h_mod = Histogram(h_obs.edges)
 
     fop = deepcopy(fop_)
     rs = midpoints(h_obs.edges[1])
@@ -94,13 +98,17 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
     corrections = []
     deltas = [Inf]
 
-    ho_mod.weights .= h_obs.weights
+    h_mod.weights .= h_obs.weights
     corr = zeros(Float64, length(h_obs.weights))
     f = nothing
     yth = nothing
     for iter in 1:iters
-        fits = pre_fit!(fop, ho_mod, epochs; require_convergence = false)
+        fits = pre_fit!(fop, h_mod, epochs)
         f = fits[end]
+        if f.nepochs != epochs
+            push!(chain, f)
+            break
+        end
         init = get_para(f)
         push!(chain, f)
         push!(corrections, corr)
@@ -117,16 +125,16 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
         rho = ramp(iter, fop.mu, fop.rho)
         mldsmcp!(bag, 1:fop.order, rs, h_obs.edges[1], fop.mu, rho, init)
 
-        ho_mod.weights .= h_obs.weights
+        h_mod.weights .= h_obs.weights
 
         yth = get_tmp(bag.ys, eltype(init))
         corr = yth .* diff(h_obs.edges[1]) .- weightsnaive
         corr[1:corcut] .= 0.
-        temp = ho_mod.weights .- corr
+        temp = h_mod.weights .- corr
         temp .= round.(Int, temp)
-        ho_mod.weights .= max.(temp, 0)
-        @assert all(isfinite, ho_mod.weights)
-        @assert all(!isnan, ho_mod.weights)
+        h_mod.weights .= max.(temp, 0)
+        @assert all(isfinite, h_mod.weights)
+        @assert all(!isnan, h_mod.weights)
     end
 
     conv = true
@@ -147,6 +155,7 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
         chain,
         corrections,
         h_obs,
+        h_mod,
         yth,
         deltas,
         conv
@@ -168,19 +177,14 @@ function correctestimate!(fop::FitOptions, fit::FitResult, h::Histogram)
 end
 
 """
-    compare_models(models)
+    compare_models(models[, mask])
 
 Compare the models parameterized by `FitResult`s and return the best one.
-Takes an iterable of `FitResult` as input.
-
-### Theoretical explanation
-TBD
+Takes an iterable of `FitResult` as input and optionally a boolean mask
+to reflect prior knowledge on models to discard.
 """
-function compare_models(models, flags=trues(length(models)))
+function compare_models(models, mask=trues(length(models)))
     ms = copy(models)
-    mask = map(eachindex(ms)) do i
-        isfinite(evd(ms[i])) && ms[i].converged && flags[i]
-    end
     ms = ms[mask]
     if isempty(ms)
         @warn "none of the models is meaningful"
@@ -199,13 +203,13 @@ function compare_models(models, flags=trues(length(models)))
             @warn """
                 log-likelihood is not monotonic in the number of epochs.
                 This means that at least one likelihood optimization
-                has probably failed. You may want to change the fit options.
+                has probably failed. See diagnostics.
             """
             monotonic = false
         end
     end
-    if !reduce(&, mask[1:best])
-        @warn "a simpler model did not converge"
+    if ms[best].converged == false
+        @warn "the best model's optimization did not converge"
     end
     return ms[best]
 end

@@ -15,6 +15,7 @@ makedocs(;
     pages=[
         "Home" => "index.md",
         "Tutorial" => "tutorial.md",
+        "Diagnostics" => "diagnostics.md"
     ],
     warnonly=[:missing_docs],
 )

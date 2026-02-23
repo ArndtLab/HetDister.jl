@@ -2,74 +2,31 @@ function tcondr(r::Number, mu::Number)
     return [1 / (mu * r), 1 / (mu * (25r)^(1/1.3))]
 end
 
-function deviant(h::Histogram, prev_para::Vector{T}, fop::FitOptions;
-    frame::Number = 20,
-    pos::Bool = true,
-    threshold::Float64 = 0.
+function timesplitter(h::Histogram, prev_para::Vector{T}, fop::FitOptions;
+    frame::Number = 5
 ) where {T <: Number}
 
     # find approximate time of positive (negative) deviation from previous fit
     r = midpoints(h.edges[1])
     residuals = compute_residuals(h, fop.mu, fop.rho, prev_para, naive = isnaive(fop))
-    if !pos residuals = -residuals end
 
-    divide = zeros(Int, length(residuals))
-    divide[(residuals .> threshold) .& (r .>= fop.smallest_segment)] .= 1
-    divide[residuals .< threshold] .= 0
-    j = 1
-    while j < length(divide)
-        z = 1
-        while j+z <= length(divide) && divide[j+z] == divide[j]
+    found = zeros(1)
+    j = fop.locut
+    while j < length(residuals)
+        z = j + 1
+        while z < length(residuals) && residuals[j] * residuals[z] > 0
             z += 1
         end
-        if z <= frame
-            divide[j:j+z-1] .= 0
+        if z - j >= frame
+            t1 = tcondr(r[j], fop.mu)
+            t2 = tcondr(r[z], fop.mu)
+            @debug "identified deviation " r[j] r[z]
+            append!(found, t1, t2)
         end
-        j += z
+        j = z
     end
-    found = zeros(1)
-    for j in eachindex(divide[1:end-1])
-        if divide[j] != divide[j+1]
-            t = tcondr(r[j], fop.mu)
-            @debug "identified deviation " r[j]
-            append!(found, t)
-        end
-    end
+    @debug "time splits results " found
     return found
-end
-
-function timesplitter(h::Histogram, prev_para::Vector{T}, fop::FitOptions;
-    frame::Number = 20,
-    threshold::Float64 = 0.
-) where {T <: Number}
-    t1 = deviant(h, prev_para, fop; 
-        frame, pos = true, threshold
-    )
-    if iszero(t1)
-        t1 = deviant(h, prev_para, fop;
-            frame=frame/2, pos = true, threshold
-        )
-    end
-    if iszero(t1)
-        t1 = deviant(h, prev_para, fop;
-            frame=frame/4, pos = true, threshold
-        )
-    end
-    t2 = deviant(h, prev_para, fop;
-        frame, pos = false, threshold
-    )
-    if iszero(t2)
-        t2 = deviant(h, prev_para, fop;
-            frame=frame/2, pos = false, threshold
-        )
-    end
-    if iszero(t2)
-        t2 = deviant(h, prev_para, fop;
-            frame=frame/4, pos = false, threshold
-        )
-    end
-    @debug "deviant results " t1 t2
-    return vcat(t1, t2)
 end
 
 function epochfinder!(init::Vector{T}, N0, t, fop::FitOptions) where {T <: Number}
@@ -131,32 +88,18 @@ function perturb_fit!(f::FitResult, fop::FitOptions, h::Histogram;
 end
 
 """
-    pre_fit(h::Histogram, nfits, mu, rho, order, Ltot; require_convergence=true)
-    pre_fit!(fop::FitOptions, h::Histogram, nfits; require_convergence=true)
+    pre_fit!(fop::FitOptions, h::Histogram, nfits)
 
 Preliminarily fit `h` with an approximate model of piece-wise constant 
 epochs for each number of epochs from 1 to `nfits`.
 
-With the first signature it initializes the fit
-options to default. See [`FitOptions`](@ref) for how to specify them.
-Otherwise it modifies `fop` in place to adapt it to all the requested
+See [`FitOptions`](@ref) for how to specify them.
+It modifies `fop` in place to adapt it to all the requested
 epochs.
-The mutation rate `mu` and recombination rate `rho` are
-assumed to be per base pairs per generation
-and the total length of the genome `Ltot` is in base pairs. Return a 
-vector of `FitResult`, one for each number of epochs,
+Return a vector of `FitResult`, one for each number of epochs,
 see also [`FitResult`](@ref).
 """
-function pre_fit(h::Histogram{T,1,E}, nfits::Int, mu::Float64, 
-    rho::Float64, order::Int, ndt::Int, Ltot::Number; 
-    require_convergence::Bool = true
-) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
-    fop = FitOptions(Ltot, mu, rho; order, ndt)
-    return pre_fit!(fop, h, nfits; require_convergence)
-end
-
-function pre_fit!(fop::FitOptions, h::Histogram{T,1,E}, nfits::Int;
-    require_convergence::Bool = true
+function pre_fit!(fop::FitOptions, h::Histogram{T,1,E}, nfits::Int
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
     fits = FitResult[]
     N0 = sum(h.weights) / fop.Ltot / 4fop.mu
@@ -192,13 +135,12 @@ function pre_fit!(fop::FitOptions, h::Histogram{T,1,E}, nfits::Int;
                 epochfinder!(init, N0, ts[j], fops[j])
                 setinit!(fops[j], init)
                 f = fit_model_epochs!(fops[j], h; stats = false)
-                # f = perturb_fit!(f, fops[j], h; by_pass=true)
                 fs[j] = f
             end
             lps = map(f->f.lp, fs)
             f = fs[argmax(lps)]
             @debug "best " ts[argmax(lps)] f.lp f.converged
-            f = perturb_fit!(f, fop, h)
+            f = perturb_fit!(f, fop, h; by_pass=true)
             setinit!(fop, get_para(f))
             f = fit_model_epochs!(fop, h)
             @assert all(!isnan, f.para) """
@@ -211,10 +153,6 @@ function pre_fit!(fop::FitOptions, h::Histogram{T,1,E}, nfits::Int;
         end
 
         push!(fits, f)
-        if require_convergence && !f.converged
-            @info "pre_fit: not converged, epoch $i"
-            return fits
-        end
     end
     return fits
 end
