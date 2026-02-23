@@ -197,37 +197,48 @@ function getFitResult(hess, para, lp, optim_result, options::FitOptions, counts,
 end
 
 """
-    sample_model_epochs!(options::FitOptions, h::Histogram{T,1,E}; nsamples)
+    sample_model_epochs!(options::FitOptions, h::Histogram{T,1,E}, init::AbstractVector{<:Real}; nsamples = 10_000, findmode = false)
 
-Sample `nsamples` from the posterior distribution of the parameters of the model
-of piece-wise constant epochs, given the observed histogram `h` and the fit
-options `options`. See also [`FitOptions`](@ref) for how to specify the fit
-options and `setinit!` to specify the initial parameters. Return a `Chains`
-object from the `MCMCDiagnostics` module of `Turing`, which contains the samples
-from the posterior distribution.
+Sample `nsamples` from the posterior distribution of the parameters, starting
+from initial point `init`.
+
+Requires the observed histogram `h` and the fit options `options`.
+Return a `Chains` object from the `MCMCDiagnostics` module of `Turing`,
+which contains the samples from the posterior distribution.
+If `findmode` is true, the function will first find the mode of the
+posterior distribution using optimization, and then use that as the
+initial point for sampling. Otherwise, it will use the provided
+`init` as the initial point for sampling.
 """
-function sample_model_epochs!(options::FitOptions, h::Histogram{T,1,E};
-    nsamples::Int=10_000
+function sample_model_epochs!(options::FitOptions, h::Histogram{T,1,E}, 
+    init::AbstractVector{<:Real}; nsamples::Int=10_000, findmode = false
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
-    sample_model_epochs!(options, h.edges[1], h.weights, Val(isnaive(options)); nsamples)
+    @assert length(init)%2 == 0 "initial parameters should be of length 2*nepochs"
+    setnepochs!(options, length(init)÷2)
+    setinit!(options, init)
+    sample_model_epochs!(options, h.edges[1], h.weights, Val(isnaive(options)); nsamples, findmode)
 end
 
 function sample_model_epochs!(
     options::FitOptions, edges::AbstractVector{<:Integer}, counts::AbstractVector{<:Integer},
     ::Val{true};
-    nsamples::Int=10_000
+    nsamples::Int=10_000, findmode = false
 )
     # get a good initial guess
     iszero(options.init) && initialize!(options, counts)
 
     model = model_epochs(edges, counts, options.mu, options.locut, options.prior)
     logger = ConsoleLogger(stdout, Logging.Error)
-    mle = with_logger(logger) do
-        Turing.Optimisation.estimate_mode(
-            model, MLE(), options.solver; initial_params=options.init, options.opt...
-        )
+    if findmode
+        mle = with_logger(logger) do
+            Turing.Optimisation.estimate_mode(
+                model, MLE(), options.solver; initial_params=options.init, options.opt...
+            )
+        end
+        setinit!(options, mle.values)
     end
-    init_ = InitFromParams(mle)
+    pars_ = Dict(DynamicPPL.VarName{:TN}() => options.init)
+    init_ = InitFromParams(pars_)
     chain = with_logger(logger) do
         sample(model, NUTS(), nsamples; initial_params=init_)
     end
