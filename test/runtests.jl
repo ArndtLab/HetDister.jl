@@ -132,8 +132,7 @@ end
     @test !any(best.opt.at_lboundary)
     @test !any(best.opt.at_uboundary[2:end])
     fcor = correctestimate!(fop, best, h)
-    setinit!(fop, get_para(best))
-    chain = sample_model_epochs!(fop, h; nsamples = 10)
+    chain = sample_model_epochs!(fop, h, get_para(best); nsamples = 10, findmode = true)
 
     resid = compute_residuals(h, mu, rho, TN)
     @test !any(isnan.(resid))
