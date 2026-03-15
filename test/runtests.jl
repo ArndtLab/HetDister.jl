@@ -1,7 +1,7 @@
 using HetDister
 using HetDister: npar, setinit!, initialize!, fit_model_epochs!, PInit, 
     setnepochs!, timesplitter, integral_ws, next!,
-    reset_perturb!, perturb_fit!
+    reset_perturb!, perturb_fit!, residstructure
 using PopSim
 using HistogramBinnings
 using Distributions
@@ -44,7 +44,7 @@ itr = Base.Iterators.product(mus,rhos,TNs)
     setnepochs!(fop, 5)
     @test npar(fop) == 10
     @test fop.init == zeros(npar(fop))
-    setinit!(fop, ones(npar(fop)))
+    initialize!(fop, h.weights)
     @test fop.perturb == falses(npar(fop))
     @test length(fop.low) == npar(fop)
     @test length(fop.upp) == npar(fop)
@@ -133,14 +133,18 @@ end
     @test !any(best.opt.at_uboundary[2:end])
     fcor = correctestimate!(fop, best, h)
     chain = sample_model_epochs!(fop, h, get_para(best); nsamples = 10, findmode = true)
+    fl = flags(best)
 
     resid = compute_residuals(h, mu, rho, TN)
     @test !any(isnan.(resid))
-    resid = compute_residuals(h, mu, rho, TN; naive=true)
+    resid = compute_residuals(h, mu, rho, TN; naive=false)
     @test !any(isnan.(resid))
     ws = integral_ws(h.edges[1], mu, TN)
     @test !any(isnan.(ws))
     @test !any(ws .< 0)
+    resid = compute_residuals(h, ws./diff(h.edges[1]))
+    @test !any(isnan.(resid))
+    p = residstructure(resid)
 
     ibs2 = get_sim(TN, mu, rho)
     h2 = Histogram(h.edges)

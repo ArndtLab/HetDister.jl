@@ -53,9 +53,26 @@ sds(fit::FitResult) = copy(fit.stderrors)
 """
     evd(fit::FitResult)
 
-Return the evidence of the fit.
+Return the log-evidence of the fit.
 """
 evd(fit::FitResult) = fit.evidence
+
+"""
+    loglike(fit::FitResult)
+
+Return the log-likelihood of the fit.
+"""
+loglike(fit::FitResult) = fit.lp
+
+"""
+    times(fit::FitResult)
+
+Return the times of size changes.
+"""
+function times(fit::FitResult)
+    ts = [Spectra.getts(fit.para, i) for i in 1:fit.nepochs]
+    return ts
+end
 
 """
     pop_sizes(fit::FitResult)
@@ -87,6 +104,32 @@ function get_covar(fit::FitResult)
     covar = eigen_problem.vectors *
         diagm(inv.(lambdas)) * eigen_problem.vectors'
     return covar
+end
+
+"""
+    flags(fit::FitResult)
+
+Return a named tuple of flags and diagnostics for the fit, including:
+- `converged`: whether the optimization converged
+- `convex_optimum`: whether the likelihood Hessian at the optimum
+  is **strictly** positive definite.
+- `ci_low`: whether the confidence interval of any parameter includes zero
+- `at_any_boundary`: whether any parameter is at its lower or upper bound
+- `log_like`: the log-likelihood of the fit
+- `log_evidence`: the log-evidence of the fit
+- `optimizer_message`: the original message from the optimizer,
+  which can be useful for diagnosing optimization issues.
+"""
+function flags(fit::FitResult)
+    return (;
+        converged = fit.converged,
+        convex_optimum = fit.opt.convex_opt,
+        ci_low = any(fit.opt.ci_low .< 0),
+        fit.opt.at_any_boundary,
+        log_like = fit.lp,
+        log_evidence = fit.evidence,
+        optimizer_message = fit.opt.optim_result.original
+    )
 end
 
 function fraction(mu, rho, n)
@@ -294,6 +337,25 @@ function initialize!(fop::FitOptions, weights::AbstractVector{<:Integer})
     n = npar(fop)
     fop.init[1] = fop.Ltot
     fop.init[2:end] .= N .* (0.99 .+ rand(n-1) .* 0.02)
+    if n > 2
+        nlin = 4 * fop.rho * N * fop.Ltot / n * 2
+        grid = logrange(1, 1e7, 200)
+        cum = 0
+        i = n - 1
+        t0 = 0
+        for t in grid
+            if i < 3
+                break
+            end
+            l = cumulative_lineages(t, [fop.Ltot, N], fop.rho)
+            if l - cum > nlin
+                cum = l
+                fop.init[i] = t - t0
+                t0 = t
+                i -= 2
+            end
+        end
+    end
     setinit!(fop, fop.init)
     return nothing
 end
