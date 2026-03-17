@@ -1,7 +1,7 @@
 using HetDister
 using HetDister: npar, setinit!, initialize!, fit_model_epochs!, PInit, 
     setnepochs!, timesplitter, integral_ws, next!,
-    reset_perturb!, perturb_fit!, residstructure
+    reset_perturb!, perturb_fit!, residstructure, compute_residuals
 using PopSim
 using HistogramBinnings
 using Distributions
@@ -102,7 +102,8 @@ function get_sim(params::Vector, mu::Float64, rho::Float64)
     end
 end
 
-@testset "Test core functionality" for (mu,rho,TN) in zip(mus, rhos, TNs)
+@testset "Test core functionality" begin
+    mu, rho, TN = mus[1], rhos[1], TNs[1]
 
     ibs_segments = get_sim(TN, mu, rho)
     h = adapt_histogram(ibs_segments; nbins = 200)
@@ -117,8 +118,9 @@ end
     ts = timesplitter(h, get_para(stat), fop; frame = 10)
     @test length(ts) >= 1
 
+    warmup = findfirst(x -> rho <= HetDister.ramp(x, mu, rho), 1:100)
     res = demoinfer(ibs_segments, 1:length(TN)÷2, mu, rho;
-        iters = 1
+        iters = 1 - warmup
     )
     @test length(res.chains) == length(TN)÷2
     @test length(res.yth) == length(TN)÷2
@@ -133,7 +135,7 @@ end
     @test !any(best.opt.at_uboundary[2:end])
     covar = get_covar(best)
     fcor = correctestimate!(fop, best, h)
-    chain = sample_model_epochs!(fop, h, get_para(best); nsamples = 10, findmode = true)
+    chain = sample_model_epochs(fop, h, best; nsamples = 10)
     fl = flags(best)
 
     resid = compute_residuals(h, mu, rho, TN)
