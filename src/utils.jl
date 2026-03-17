@@ -93,10 +93,10 @@ npar(fit::FitResult) = 2fit.nepochs
 """
     get_covar(fit::FitResult)
 Return the covariance matrix of the parameters of the fit, computed as the
-inverse of the likelihood Hessian at the optimum.
+inverse of the log-likelihood Hessian at the optimum.
 """
 function get_covar(fit::FitResult)
-    hess = fit.opt.hessian
+    hess = fit.opt.hess
     eigen_problem = eigen(hess)
     lambdas = eigen_problem.values
     lambdas = real.(lambdas)
@@ -247,7 +247,6 @@ recombination rate `rho` per base pair per generation.
 - `Tlow::Number=10`, `Tupp::Number=1e7`: The lower and upper bounds for the duration of epochs.
 - `Nlow::Number=10`, `Nupp::Number=1e8`: The lower and upper bounds for the population sizes.
 - `level::Float64=0.95`: The confidence level for the confidence intervals on the parameters estimates.
-- `solver`: The solver to use for the optimization, default is `LBFGS()`.
 - `force::Bool=true`: if true try to fit further epochs even when no signal is found.
 - `maxnts::Int=5`: The maximum number of new time splits to consider when adding a new epoch.
   Higher is greedier.
@@ -257,31 +256,18 @@ recombination rate `rho` per base pair per generation.
 - `ndt::Int=0`: number of Legendre nodes to use for numerical integration.
   When zero, it is set automatically.
 - `locut::Int=1`: index of the first histogram bin to consider in the fit.
-
-## Optim Arguments
-Additional keywords are passed to `Optimization.solve`, see
-[Optimization.jl](https://docs.sciml.ai/Optimization/stable/API/solve/#Common-Solver-Options-(Solve-Keyword-Arguments)).
-and the specific `Optim.jl` section, which is the default optimizer. Defaults are:
-- `maxiters = 6000`
-- `maxtime = 60`
-- `g_tol = 5e-8`
 """
 function FitOptions(Ltot, nhet, mu, rho;
     Tlow = 10, Tupp = 1e7,
     Nlow = 10, Nupp = 1e8,
     level = 0.95,
-    solver = LBFGS(),
     nepochs::Int = 1,
     force::Bool = true,
     maxnts::Int = 5,
     naive::Bool = true,
     order::Int = 0,
     ndt::Int = 0,
-    locut::Int = 1,
-    maxiters = 6000,
-    maxtime = 60,
-    g_tol = 5e-8,
-    kwargs...
+    locut::Int = 1
 )
     N = 2nepochs
     init = zeros(N)
@@ -307,6 +293,16 @@ function FitOptions(Ltot, nhet, mu, rho;
         order = o
     end
 
+    solver = LBFGS()
+    maxiters = 6000
+    maxtime = 60
+    g_tol = 5e-8
+    if nhet > 1e7
+        maxiters = 30000
+        maxtime = 180
+        g_tol = 1e-5
+    end
+
     return FitOptions(
         nepochs,
         mu,
@@ -316,7 +312,7 @@ function FitOptions(Ltot, nhet, mu, rho;
         perturb,
         delta,
         solver,
-        (;maxiters, maxtime, g_tol, kwargs...),
+        (; maxiters, maxtime, g_tol),
         low,
         upp,
         prior,
@@ -389,6 +385,7 @@ function setnepochs!(fop::FitOptions, nepochs::Int)
     fop.low = LBound(L, Nlow, Tlow, N)
     fop.upp = UBound(L, Nupp, Tupp, N)
     fop.prior = Uniform.(fop.low, fop.upp)
+    return nothing
 end
 
 function set_perturb!(fop::FitOptions, fit::FitResult)
@@ -443,11 +440,26 @@ function setnaive!(fop::FitOptions, flag::Bool)
     fop.naive = flag
 end
 
+"""
+    setOptimOptions!(fop::FitOptions; kwargs...)
+
+Set the options which are passed to `Optimization.solve`, see
+[Optimization.jl](https://docs.sciml.ai/Optimization/stable/API/solve/#Common-Solver-Options-(Solve-Keyword-Arguments)).
+and the specific `Optim.jl` section, which is the default optimizer. Defaults are:
+- `solver`: The solver to use for the optimization, default is `LBFGS()`.
+- `maxiters = 6000`
+- `maxtime = 60`
+- `g_tol = 5e-8`
+If given more parameters, they are passed to the optimizer.
+"""
 function setOptimOptions!(fop::FitOptions;
+    solver = LBFGS(),
     maxiters = 6000,
     maxtime = 60,
     g_tol = 5e-8,
     kwargs...
 )
     fop.opt = (; maxiters, maxtime, g_tol, kwargs...)
+    fop.solver = solver
+    return nothing
 end
