@@ -141,8 +141,8 @@ function pre_fit!(fop::FitOptions, h::Histogram{T,1,E}, nfits::Int
             lps = map(f->f.lp, fs)
             f = fs[argmax(lps)]
             @debug "best " ts[argmax(lps)] f.lp f.converged
-            f = perturb_fit!(f, fop, h; by_pass=true)
-            setinit!(fop, get_para(f)*0.999)
+            f2 = perturb_fit!(f, fop, h; by_pass=true)
+            setinit!(fop, get_para(f2)*0.99)
             f = fit_model_epochs!(fop, h)
             @assert all(!isnan, f.para) """
                 NaN parameters $(f.para)
@@ -150,6 +150,7 @@ function pre_fit!(fop::FitOptions, h::Histogram{T,1,E}, nfits::Int
                 $(f.opt.init)
                 $(fop.upp)
                 $(fs[argmax(lps)])
+                $(f2.para)
             """
         end
 

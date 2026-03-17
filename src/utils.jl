@@ -53,9 +53,26 @@ sds(fit::FitResult) = copy(fit.stderrors)
 """
     evd(fit::FitResult)
 
-Return the evidence of the fit.
+Return the log-evidence of the fit.
 """
 evd(fit::FitResult) = fit.evidence
+
+"""
+    loglike(fit::FitResult)
+
+Return the log-likelihood of the fit.
+"""
+loglike(fit::FitResult) = fit.lp
+
+"""
+    times(fit::FitResult)
+
+Return the times of size changes.
+"""
+function times(fit::FitResult)
+    ts = [Spectra.getts(fit.para, i) for i in 1:fit.nepochs]
+    return ts
+end
 
 """
     pop_sizes(fit::FitResult)
@@ -76,10 +93,10 @@ npar(fit::FitResult) = 2fit.nepochs
 """
     get_covar(fit::FitResult)
 Return the covariance matrix of the parameters of the fit, computed as the
-inverse of the likelihood Hessian at the optimum.
+inverse of the log-likelihood Hessian at the optimum.
 """
 function get_covar(fit::FitResult)
-    hess = fit.opt.hessian
+    hess = fit.opt.hess
     eigen_problem = eigen(hess)
     lambdas = eigen_problem.values
     lambdas = real.(lambdas)
@@ -87,6 +104,32 @@ function get_covar(fit::FitResult)
     covar = eigen_problem.vectors *
         diagm(inv.(lambdas)) * eigen_problem.vectors'
     return covar
+end
+
+"""
+    flags(fit::FitResult)
+
+Return a named tuple of flags and diagnostics for the fit, including:
+- `converged`: whether the optimization converged
+- `convex_optimum`: whether the likelihood Hessian at the optimum
+  is **strictly** positive definite.
+- `ci_low`: whether the confidence interval of any parameter includes zero
+- `at_any_boundary`: whether any parameter is at its lower or upper bound
+- `log_like`: the log-likelihood of the fit
+- `log_evidence`: the log-evidence of the fit
+- `optimizer_message`: the original message from the optimizer,
+  which can be useful for diagnosing optimization issues.
+"""
+function flags(fit::FitResult)
+    return (;
+        converged = fit.converged,
+        convex_optimum = fit.opt.convex_opt,
+        ci_low = any(fit.opt.ci_low .< 0),
+        fit.opt.at_any_boundary,
+        log_like = fit.lp,
+        log_evidence = fit.evidence,
+        optimizer_message = fit.opt.optim_result.original
+    )
 end
 
 function fraction(mu, rho, n)
@@ -204,7 +247,6 @@ recombination rate `rho` per base pair per generation.
 - `Tlow::Number=10`, `Tupp::Number=1e7`: The lower and upper bounds for the duration of epochs.
 - `Nlow::Number=10`, `Nupp::Number=1e8`: The lower and upper bounds for the population sizes.
 - `level::Float64=0.95`: The confidence level for the confidence intervals on the parameters estimates.
-- `solver`: The solver to use for the optimization, default is `LBFGS()`.
 - `force::Bool=true`: if true try to fit further epochs even when no signal is found.
 - `maxnts::Int=5`: The maximum number of new time splits to consider when adding a new epoch.
   Higher is greedier.
@@ -214,31 +256,18 @@ recombination rate `rho` per base pair per generation.
 - `ndt::Int=0`: number of Legendre nodes to use for numerical integration.
   When zero, it is set automatically.
 - `locut::Int=1`: index of the first histogram bin to consider in the fit.
-
-## Optim Arguments
-Additional keywords are passed to `Optimization.solve`, see
-[Optimization.jl](https://docs.sciml.ai/Optimization/stable/API/solve/#Common-Solver-Options-(Solve-Keyword-Arguments)).
-and the specific `Optim.jl` section, which is the default optimizer. Defaults are:
-- `maxiters = 6000`
-- `maxtime = 60`
-- `g_tol = 5e-8`
 """
 function FitOptions(Ltot, nhet, mu, rho;
     Tlow = 10, Tupp = 1e7,
     Nlow = 10, Nupp = 1e8,
     level = 0.95,
-    solver = LBFGS(),
     nepochs::Int = 1,
     force::Bool = true,
     maxnts::Int = 5,
     naive::Bool = true,
     order::Int = 0,
     ndt::Int = 0,
-    locut::Int = 1,
-    maxiters = 6000,
-    maxtime = 60,
-    g_tol = 5e-8,
-    kwargs...
+    locut::Int = 1
 )
     N = 2nepochs
     init = zeros(N)
@@ -264,6 +293,16 @@ function FitOptions(Ltot, nhet, mu, rho;
         order = o
     end
 
+    solver = LBFGS()
+    maxiters = 6000
+    maxtime = 60
+    g_tol = 5e-8
+    if nhet > 1e7
+        maxiters = 30000
+        maxtime = 180
+        g_tol = 1e-5
+    end
+
     return FitOptions(
         nepochs,
         mu,
@@ -273,7 +312,7 @@ function FitOptions(Ltot, nhet, mu, rho;
         perturb,
         delta,
         solver,
-        (;maxiters, maxtime, g_tol, kwargs...),
+        (; maxiters, maxtime, g_tol),
         low,
         upp,
         prior,
@@ -294,6 +333,25 @@ function initialize!(fop::FitOptions, weights::AbstractVector{<:Integer})
     n = npar(fop)
     fop.init[1] = fop.Ltot
     fop.init[2:end] .= N .* (0.99 .+ rand(n-1) .* 0.02)
+    if n > 2
+        nlin = 4 * fop.rho * N * fop.Ltot / n * 2
+        grid = logrange(1, 1e7, 200)
+        cum = 0
+        i = n - 1
+        t0 = 0
+        for t in grid
+            if i < 3
+                break
+            end
+            l = cumulative_lineages(t, [fop.Ltot, N], fop.rho)
+            if l - cum > nlin
+                cum = l
+                fop.init[i] = t - t0
+                t0 = t
+                i -= 2
+            end
+        end
+    end
     setinit!(fop, fop.init)
     return nothing
 end
@@ -327,6 +385,7 @@ function setnepochs!(fop::FitOptions, nepochs::Int)
     fop.low = LBound(L, Nlow, Tlow, N)
     fop.upp = UBound(L, Nupp, Tupp, N)
     fop.prior = Uniform.(fop.low, fop.upp)
+    return nothing
 end
 
 function set_perturb!(fop::FitOptions, fit::FitResult)
@@ -381,11 +440,26 @@ function setnaive!(fop::FitOptions, flag::Bool)
     fop.naive = flag
 end
 
+"""
+    setOptimOptions!(fop::FitOptions; kwargs...)
+
+Set the options which are passed to `Optimization.solve`, see
+[Optimization.jl](https://docs.sciml.ai/Optimization/stable/API/solve/#Common-Solver-Options-(Solve-Keyword-Arguments)).
+and the specific `Optim.jl` section, which is the default optimizer. Defaults are:
+- `solver`: The solver to use for the optimization, default is `LBFGS()`.
+- `maxiters = 6000`
+- `maxtime = 60`
+- `g_tol = 5e-8`
+If given more parameters, they are passed to the optimizer.
+"""
 function setOptimOptions!(fop::FitOptions;
+    solver = LBFGS(),
     maxiters = 6000,
     maxtime = 60,
     g_tol = 5e-8,
     kwargs...
 )
     fop.opt = (; maxiters, maxtime, g_tol, kwargs...)
+    fop.solver = solver
+    return nothing
 end
