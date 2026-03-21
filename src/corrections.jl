@@ -13,13 +13,16 @@ Return a named tuple which contains the fields:
 - `fits`: a vector of `FitResult` (see [`FitResult`](@ref))
 - `chains`: a vector of vectors of `FitResult`, one for each iteration
   of the correction procedure, and one chain per model
+- `yth`: a vector of vectors of the expected weights, one for each model
+  and one vector of expected weights per iteration of the correction procedure
 - `corrections`: a vector of vectors of corrections, one for each iteration
   of the correction procedure, and one vector of corrections per model.
   Corrections are histogram counts, therefore they have the same shape.
 - `h_obs`: the histogram of the observed segments
 - `h_mods`: a vector of modified histograms, one for each model, with
   higher order corrections applied.
-- `yth`: a vector of vectors of the expected weights, one for each model
+- `ybest`: a vector of expected weights corresponding 
+  to the best fit, one for each model
 - `resid`: a vector of vectors of residuals, one for each model
 - `p`: a vector of right-tail p-values for the autocorrelation of residuals, one for each model
 - `deltas`: a vector of vectors of the maximum absolute difference between
@@ -81,11 +84,12 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochrange::AbstractRange{<:Integer}
     end
     return (;
         fits = map(r->r.f, results),
+        yth = map(r->r.yth, results),
         chains = map(r->r.chain, results),
         corrections = map(r->r.corrections, results),
         h_obs = results[1].h_obs,
         h_mods = map(r->r.h_mod, results),
-        yth = map(r->r.yth, results),
+        ybest = map(r->r.ybest, results),
         resid = map(r->r.resid, results),
         p = map(r->r.p, results),
         deltas = map(r->r.deltas, results),
@@ -108,16 +112,15 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
 
     chain = []
     corrections = []
+    yths = []
     deltas = [Inf]
     lls = []
 
     h_mod.weights .= h_obs.weights
     corr = zeros(Float64, length(h_obs.weights))
-    f = nothing
-    ybest = zeros(length(rs))
-    llbest = -Inf
     conv = false
     warmup = findfirst(x -> fop.rho <= ramp(x, fop.mu, fop.rho), 1:100)
+    isnothing(warmup) && (warmup = 100)
     for iter in 1:iters+warmup
         fits = pre_fit!(fop, h_mod, epochs)
         f = fits[end]
@@ -128,18 +131,6 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
         init = get_para(f)
         push!(chain, f)
         push!(corrections, corr)
-        if iter > 1
-            deltacorr = corrections[iter] .- corrections[iter-1]
-            delta = maximum(abs.(deltacorr))
-            deltapars = maximum(
-                abs.((get_para(chain[end]) .- get_para(chain[end-1])) ./ get_para(chain[end-1]))
-            )
-            push!(deltas, delta)
-            if delta < reltol || deltapars < relchange
-                conv = true
-                break
-            end
-        end
 
         weightsnaive = integral_ws(h_obs.edges[1], fop.mu, init)
         rho = ramp(iter, fop.mu, fop.rho)
@@ -164,22 +155,35 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
 
         ll = llsmcp(wth, h_obs.weights, fop.locut)
         push!(lls, ll)
-        if ll > llbest
-            ybest .= yth
-            llbest = ll
+        push!(yths, copy(yth))
+        if iter > warmup
+            deltaw = (yths[iter] .- yths[iter-1]) .* diff(h_obs.edges[1])
+            delta = maximum(abs.(deltaw))
+            deltapars = maximum(
+                abs.((get_para(chain[end]) .- get_para(chain[end-1])) ./ get_para(chain[end-1]))
+            )
+            push!(deltas, delta)
+            if delta < reltol || deltapars < relchange
+                conv = true
+                break
+            end
         end
     end
 
+    best = argmax(lls[warmup:end]) + warmup - 1
+    ybest = yths[best]
+    f = chain[best]
     resid = compute_residuals(h_obs, ybest)
     p = residstructure(resid[fop.locut:end])
 
     (;
-        f = chain[argmax(lls)],
+        f,
         chain,
+        yth = yths,
         corrections,
         h_obs,
         h_mod,
-        yth = ybest,
+        ybest,
         resid,
         p,
         deltas,
