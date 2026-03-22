@@ -103,6 +103,7 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
     @assert !isempty(h_obs.weights) "histogram is empty"
     @assert epochs > 0 "epochrange has to be strictly positive"
+    @assert iters > 0 "number of iterations has to be strictly positive"
 
     h_mod = Histogram(h_obs.edges)
 
