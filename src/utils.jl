@@ -177,7 +177,8 @@ function Base.getindex(lb::LBound, i::Int)
     elseif i%2 == 0
         return lb.Nlow
     else
-        return lb.Tlow
+        j = (lb.pars - i) ÷ 2 + 1
+        return lb.Tlow ^ min(j, 3)
     end
 end
 
@@ -298,11 +299,11 @@ function FitOptions(Ltot, nhet, mu, rho;
     end
 
     solver = LBFGS()
-    maxiters = 20000
+    maxiters = 30000
     maxtime = 60
     g_tol = 5e-8
     if nhet > 1e7
-        maxiters = 40000
+        maxiters = 60000
         maxtime = 180
         g_tol = 1e-5
     end
