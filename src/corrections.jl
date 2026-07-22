@@ -217,7 +217,11 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
     ll = lls[best]
     resid = compute_residuals(h_obs, ybest)
     lim = findfirst(h_obs.weights .== 0)
-    isnothing(lim) && (lim = length(resid))
+    if isnothing(lim)
+        lim = length(resid)
+    elseif lim <= fop.locut
+        lim = fop.locut + 1
+    end
     p = residstructure(resid[fop.locut:lim])
 
     temp = h_obs.weights .- corrections[best]
