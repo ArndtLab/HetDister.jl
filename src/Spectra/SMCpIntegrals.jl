@@ -162,14 +162,20 @@ function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
     jprt .= 0
     temp .= 0
 
+    # t, dt and q = pt(t, TN) only depend on j, not on i: computing them once
+    # here (instead of redundantly nrs times inside the threaded i-loop below,
+    # which also raced on writing ts[j]/dts[j] from multiple threads)
+    q = similar(ts)
+    @threads for j in 1:n_dt
+        t, dt = tolegendre(zs[j], TN)
+        ts[j] = t
+        dts[j] = dt
+        q[j] = pt(t, TN)
+    end
     @threads for i in 1:nrs
         @inbounds for j in 1:n_dt
-            t, dt = tolegendre(zs[j], TN)
-            ts[j] = t
-            dts[j] = dt
-            q = pt(t, TN)
-            p = rate * exp(-2rate * rs[i] * t)
-            jprt[j,i] = p * q
+            p = rate * exp(-2rate * rs[i] * ts[j])
+            jprt[j,i] = p * q[j]
         end
         res[i,1] = firstorder(rs[i], rate, TN)
     end
@@ -195,21 +201,26 @@ function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
         # the time loop and separate the terminal t integral below (only
         # additional linear cost when single threaded)
         @threads for j in 1:n_dt
+            # convolution r integral
+            # the contribution of all previous (completed) bins k < i decays
+            # multiplicatively with r, so instead of recomputing the full
+            # sum over k = 1:i-1 at every i (O(nrs^2)), we carry it forward
+            # in `acc`, rolling it from edges[i] to edges[i+1] at each step
+            # (O(nrs)). `acc` holds the sum evaluated at the left edge of
+            # bin i; it is then shifted to rs[i] to get jprt[j,i].
+            acc = 0.
             @inbounds for i in 1:nrs
-                # convolution r integral
-                s = 0.
-                for k in 1:i-1
-                    w = edges[k+1] - edges[k]
-                    s += temp[k,j] * exp(-2rate * (rs[i]-edges[k+1]) * ts[j]) * (- expm1(-2rate * w * ts[j])) / 2ts[j]
-                end
                 w = edges[i+1] - edges[i]
+                s = acc * exp(-2rate * (rs[i] - edges[i]) * ts[j])
                 if w <= 1
                     s += temp[i,j] * (- expm1(-2rate * w * ts[j])) / 2ts[j]
                 else
-                    w = rs[i] - edges[i]
-                    s += temp[i,j] * (- expm1(-2rate * w * ts[j])) / 2ts[j]
+                    wi = rs[i] - edges[i]
+                    s += temp[i,j] * (- expm1(-2rate * wi * ts[j])) / 2ts[j]
                 end
                 jprt[j,i] = s
+                frac = (- expm1(-2rate * w * ts[j])) / 2ts[j]
+                acc = exp(-2rate * w * ts[j]) * acc + temp[i,j] * frac
             end
         end
         @threads for i in 1:nrs
