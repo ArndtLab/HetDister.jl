@@ -107,6 +107,7 @@ struct IntegralArrays{T}
     zs::Vector{Float64}
     wt::Vector{Float64}
     ts::DiffCache{Vector{T},Vector{T}}
+    qs::DiffCache{Vector{T},Vector{T}}
     dts::DiffCache{Vector{T},Vector{T}}
 end
 
@@ -122,6 +123,7 @@ function IntegralArrays(order::Int, ndt::Int, nrs::Int, chunk, levels = 1)
         t,
         w,
         DiffCache(zeros(Float64, ndt), chunk; levels),
+        DiffCache(zeros(Float64, ndt), chunk; levels),
         DiffCache(zeros(Float64, ndt), chunk; levels)
     )
 end
@@ -136,6 +138,7 @@ function prordn!(bag::IntegralArrays,
     qtt_ = get_tmp(bag.qtt, eltype(TN))
     ts_ = get_tmp(bag.ts, eltype(TN))
     dts_ = get_tmp(bag.dts, eltype(TN))
+    qs_ = get_tmp(bag.qs, eltype(TN))
     prordn!(res_,
         jprt_,
         temp_,
@@ -143,6 +146,7 @@ function prordn!(bag::IntegralArrays,
         bag.zs,
         bag.wt,
         ts_,
+        qs_,
         dts_,
         rs, edges, rate, bag.order, bag.n_dt, bag.nrs, TN
     )
@@ -152,7 +156,7 @@ end
 function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
     temp::AbstractMatrix{<:Real}, qtt::AbstractMatrix{<:Real},
     zs::AbstractVector{<:Real}, wt::AbstractVector{<:Real},
-    ts::AbstractVector{<:Real}, dts::AbstractVector{<:Real},
+    ts::AbstractVector{<:Real}, dts::AbstractVector{<:Real}, qs::AbstractVector{<:Real},
     rs::AbstractVector{<:Real}, edges::AbstractVector{<:Real}, rate::Real, order::Int, n_dt::Int, nrs::Int,
     TN::AbstractVector{<:Real}
 )
@@ -162,20 +166,16 @@ function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
     jprt .= 0
     temp .= 0
 
-    # t, dt and q = pt(t, TN) only depend on j, not on i: computing them once
-    # here (instead of redundantly nrs times inside the threaded i-loop below,
-    # which also raced on writing ts[j]/dts[j] from multiple threads)
-    q = similar(ts)
     @threads for j in 1:n_dt
         t, dt = tolegendre(zs[j], TN)
         ts[j] = t
         dts[j] = dt
-        q[j] = pt(t, TN)
+        qs[j] = pt(t, TN)
     end
     @threads for i in 1:nrs
         @inbounds for j in 1:n_dt
             p = rate * exp(-2rate * rs[i] * ts[j])
-            jprt[j,i] = p * q[j]
+            jprt[j,i] = p * qs[j]
         end
         res[i,1] = firstorder(rs[i], rate, TN)
     end
