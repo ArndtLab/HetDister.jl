@@ -20,6 +20,7 @@ struct FitResult
     converged::Bool
     lp::Float64
     logevd::Float64
+    free::BitVector
     opt
 end
 
@@ -49,6 +50,15 @@ get_para(fit::FitResult) = copy(fit.para)
 Return the standard deviations of the parameters of the fit.
 """
 sds(fit::FitResult) = copy(fit.stderrors)
+
+"""
+    free(fit::FitResult)
+
+Return a `BitVector` flagging which parameters of the fit were actually
+estimated (`true`) versus held fixed (`false`), e.g. `L` and the `T`s when
+the fit was obtained with [`fitNs!`](@ref).
+"""
+free(fit::FitResult) = copy(fit.free)
 
 """
     evd(fit::FitResult)
@@ -223,6 +233,7 @@ mutable struct FitOptions
     force::Bool
     maxnts::Int
     naive::Bool
+    onlyN::Bool
     order::Int
     ndt::Int
     locut::Int
@@ -324,6 +335,7 @@ function FitOptions(Ltot, nhet, mu, rho;
         force,
         maxnts,
         naive,
+        false, # onlyN
         order,
         ndt,
         locut
@@ -442,6 +454,28 @@ end
 
 function setnaive!(fop::FitOptions, flag::Bool)
     fop.naive = flag
+end
+
+function isonlyN(fop::FitOptions)
+    return fop.onlyN
+end
+
+function setonlyN!(fop::FitOptions, flag::Bool)
+    fop.onlyN = flag
+end
+
+"""
+    freemaskN(fop::FitOptions)
+
+Return a `BitVector` of length `npar(fop)` flagging which entries of a `TN`
+vector are the `N` (population size) entries, i.e. `[false, true, false, true, ...]`.
+`L` (index 1) and all `T`s (odd indices > 1) are `false`; `N`s (even indices) are `true`.
+"""
+function freemaskN(fop::FitOptions)
+    n = npar(fop)
+    mask = falses(n)
+    mask[2:2:end] .= true
+    return mask
 end
 
 """

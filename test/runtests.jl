@@ -2,7 +2,7 @@ using IBSpector
 using IBSpector: npar, setinit!, initialize!, fit_model_epochs!, PInit, 
     setnepochs!, timesplitter, integral_ws, next!,
     reset_perturb!, perturb_fit!, residstructure, compute_residuals,
-    correctestimate!
+    correctestimate!, isonlyN, setonlyN!, freemaskN, fitNs!, sampleNs_posterior
 using PopSim
 using HistogramBinnings
 using Distributions
@@ -86,11 +86,47 @@ end
     fit_model_epochs!(fop, h)
 end
 
+@testset "Test fitNs! / sampleNs_posterior (N-only)" begin
+    h = Histogram([1,2,3,4])
+    append!(h, [1,1,1,2,3,1,2])
+    fop = FitOptions(11, 7, 1.0, 1.0; order = 2, ndt = 10, locut = 1, nepochs = 2)
+    @test !isonlyN(fop)
+    initialize!(fop, h.weights)
+    mask = freemaskN(fop)
+    @test mask == Bool[0, 1, 0, 1]
+
+    f = fitNs!(fop, h)
+    @test isonlyN(fop)
+    @test f.free == mask
+    @test f.para[1] == fop.init[1] # L fixed
+    @test f.para[3] == fop.init[3] # T fixed
+    @test f.stderrors[1] == 0.0
+    @test f.stderrors[3] == 0.0
+
+    chain = sampleNs_posterior(fop, h, f; nsamples = 10)
+    @test size(chain, 1) == 10
+
+    # naive == false (SMC') path, without stats (cheaper)
+    fop2 = FitOptions(11, 7, 1.0, 1.0; order = 2, ndt = 10, locut = 1, nepochs = 2)
+    IBSpector.setnaive!(fop2, false)
+    initialize!(fop2, h.weights)
+    f2 = fitNs!(fop2, h; stats = false)
+    @test f2.free == freemaskN(fop2)
+    @test f2.para[1] == fop2.init[1]
+    @test f2.para[3] == fop2.init[3]
+
+    # regression: default (onlyN = false) TN-mode behavior is unaffected
+    fop3 = FitOptions(11, 7, 1.0, 1.0; order = 2, ndt = 10, locut = 1)
+    @test !isonlyN(fop3)
+    f3 = fit_model_epochs!(fop3, h)
+    @test all(f3.free)
+end
+
 @testset "Compare models" begin
-    m1 = FitResult(1,0,0,0,[],[],"",false,-1e4,-1e4,nothing)
-    m2 = FitResult(2,0,0,0,[],[],"",true,-1e3,-1e3,nothing)
-    m3 = FitResult(3,0,0,0,[],[],"",true,-1e2,-1e2,nothing)
-    m4 = FitResult(4,0,0,0,[],[],"",true,-1e1,-1e1,nothing)
+    m1 = FitResult(1,0,0,0,[],[],"",false,-1e4,-1e4,trues(0),nothing)
+    m2 = FitResult(2,0,0,0,[],[],"",true,-1e3,-1e3,trues(0),nothing)
+    m3 = FitResult(3,0,0,0,[],[],"",true,-1e2,-1e2,trues(0),nothing)
+    m4 = FitResult(4,0,0,0,[],[],"",true,-1e1,-1e1,trues(0),nothing)
     flags = [true,true,true,false]
     b = compare_models([m1, m2, m3, m4], flags)
     @test !isnothing(b)
