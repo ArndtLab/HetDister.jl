@@ -203,6 +203,7 @@ function fit_model_epochs!(options::FitOptions, h::Histogram{T,1,E};
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
     @assert options.locut >= 1 "locut has to be at least 1"
     @assert options.locut <= length(h.weights) "locut cannot be greater than number of bins"
+    setonlyN!(options, false)
     fit_model_epochs!(options, h.edges[1], h.weights, Val(isnaive(options)); stats)
 end
 
@@ -520,6 +521,7 @@ function sample_model_epochs(options::FitOptions, h::Histogram{T,1,E},
     options_ = deepcopy(options)
     setnepochs!(options_, fit.nepochs)
     setnaive!(options_, naive)
+    setonlyN!(options_, false)
     sample_model_epochs!(options_, fit, h.edges[1], h.weights, Val(isnaive(options_)); nsamples)
 end
 
