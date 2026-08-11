@@ -377,11 +377,17 @@ end
     setinit!(fop::FitOptions, init::AbstractVector{<:Real})
 
 Set the initial vector of parameters for the optimization which takes the `FitOptions` object `fop`.
+
+Entries outside the prior support are truncated into it. When `fop` is set up
+for an N-only optimization (see [`isonlyN`](@ref), [`fitNs!`](@ref)) only the
+`N` entries are truncated: `L` and the `T`s are held fixed by the fit, so they
+are kept exactly as requested.
 """
 function setinit!(fop::FitOptions, init::AbstractVector{<:Real})
     @assert length(init) == npar(fop) "Length of init vector must be equal to number of parameters"
     fop.init .= init
-    for i in eachindex(fop.init)
+    idxs = isonlyN(fop) ? (2:2:npar(fop)) : eachindex(fop.init)
+    for i in idxs
         fop.init[i] <= fop.low[i] ? fop.init[i] = fop.low[i] * 1.001 : nothing
         fop.init[i] >= fop.upp[i] ? fop.init[i] = fop.upp[i] * 0.999 : nothing
     end
