@@ -275,23 +275,26 @@ end
     seed = get_para(fits[end])
     nepochs0 = length(seed) ÷ 2
 
-    # baseline: N-only fit of the seed, i.e. what refine_model! starts from
-    setnepochs!(fop, nepochs0)
-    setonlyN!(fop, true)
-    setinit!(fop, seed)
-    baseline = fitNs!(fop, h)
-
-    f = refine_model!(fop, h, seed)
-    @test f isa FitResult
-    @test nepochs0 <= f.nepochs <= 2nepochs0
-    @test f.free == freemaskN(fop)
-    # L and the Ts are held fixed at the proposed values
-    @test f.para[1] == fop.init[1]
-    @test f.para[3:2:end-1] == fop.init[3:2:end-1]
-    @test evd(f) >= evd(baseline)
-    @test !isnothing(f.opt.hess)
-    @test !isnothing(flags(f))
-    @test fop.nepochs == f.nepochs
+    fits = refine_model!(fop, h, seed)
+    @test fits isa Vector{FitResult}
+    @test 1 < length(fits) <= nepochs0 + 1
+    neps = [f.nepochs for f in fits]
+    # ordered from the most to the least complex model, the input being the last
+    @test all(diff(neps) .== -1)
+    @test neps[1] <= 2nepochs0
+    @test neps[end] == nepochs0
+    # each model nests the following one
+    @test fits[1].lp >= fits[end].lp
+    for f in fits
+        # only the Ns are estimated, L and the Ts are held fixed at the proposal
+        @test f.free[2:2:end] == trues(f.nepochs)
+        @test f.free[1:2:end] == falses(f.nepochs)
+        @test f.para[1] == f.opt.init[1]
+        @test f.para[3:2:end-1] == f.opt.init[3:2:end-1]
+        @test !isnothing(f.opt.hess)
+        @test !isnothing(flags(f))
+    end
+    @test fop.nepochs == fits[end].nepochs
     @test isonlyN(fop)
 end
 

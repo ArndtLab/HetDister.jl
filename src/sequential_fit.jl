@@ -193,95 +193,89 @@ end
 """
     refine_model!(fop::FitOptions, h::Histogram, TN::AbstractVector{<:Real})
 
-Iteratively refine the demographic model `TN` on the observed histogram `h` by
-splitting its epochs, fitting only the population sizes, see [`fitNs!`](@ref).
+Refine the demographic model `TN` on the observed histogram `h` by splitting its
+epochs, fitting only the population sizes, see [`fitNs!`](@ref).
 
-In each round every epoch `[t0, t1)` of the current model proposes one new epoch
-boundary, placed where half of the lineages coalescing within that epoch have
-coalesced, see [`midlineagetime`](@ref). This gives as many candidate models as
-there are epochs, each with one epoch more than the current one. They are all
-fitted in parallel and the one with the highest evidence is adopted as the new
-current model. Candidates whose log-likelihood is not better than the current
-one are discarded: they contain the current model as a special case, so this
-signals a failed optimization.
+Every epoch `[t0, t1)` of `TN` proposes one new epoch boundary, placed where half
+of the lineages coalescing within that epoch have coalesced, see
+[`midlineagetime`](@ref). The most complex model keeps all of these splits, i.e.
+it has twice the epochs of `TN`. Splits are then dropped one at a time, starting
+from the one lying in the epoch with the fewest coalescing lineages, see
+[`cumulative_lineages`](@ref), down to the model keeping only the split of the
+epoch with the most lineages. Every model of this ladder is fitted, together with
+`TN` itself.
 
-The refinement stops when the evidence stops increasing or when the number of
-epochs reaches twice that of the input `TN`. Only the population sizes are ever
-estimated: the total genome length and all epoch durations stay fixed at the
-proposed values.
+Only the population sizes are ever estimated: the total genome length and all
+epoch durations stay fixed at the proposed values. No model is discarded, the
+selection is left to the caller, see [`evd`](@ref).
 
-`fop` is modified in place to describe the returned model (`nepochs`, `init` and
-`onlyN`). Return the final model as a `FitResult` with stats computed, see also
-[`FitResult`](@ref).
+`fop` is modified in place to describe the last returned model (`nepochs`, `init`
+and `onlyN`). Return a vector of `FitResult` with stats computed, ordered from
+the most to the least complex model, the input `TN` being the last entry, see
+also [`FitResult`](@ref).
 """
 function refine_model!(fop::FitOptions, h::Histogram{T,1,E}, TN::AbstractVector{<:Real}
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
     nepochs0 = length(TN) ÷ 2
     @assert nepochs0 > 0 "TN has to contain at least one epoch"
-    maxepochs = 2nepochs0
     tmax = 1e9 # the oldest epoch has no upper boundary
 
-    setnepochs!(fop, nepochs0)
-    setonlyN!(fop, true) # before setinit!, to keep the proposed L and Ts
-    setinit!(fop, TN)
-    best = fitNs!(fop, h)
-
-    while best.nepochs < maxepochs
-        cur = get_para(best)
-        nep = best.nepochs
-        # absolute times of epoch changes, from recent to ancient
-        bounds = [Spectra.getts(cur, i) for i in 1:nep]
-        ts = Float64[]
-        for i in 1:nep
-            t0 = bounds[i]
-            t1 = i < nep ? bounds[i+1] : tmax
-            t = midlineagetime(t0, t1, cur, fop.rho)
-            if t0 + 1 < t < t1 - 1 && !(t in ts)
-                push!(ts, t)
-            end
+    # one candidate split and the number of coalescing lineages
+    # for each epoch of the input model
+    bounds = [Spectra.getts(TN, i) for i in 1:nepochs0]
+    ts = Float64[]
+    ws = Float64[]
+    for i in 1:nepochs0
+        t0 = bounds[i]
+        t1 = i < nepochs0 ? bounds[i+1] : tmax
+        t = midlineagetime(t0, t1, TN, fop.rho)
+        if t0 + 1 < t < t1 - 1 && !(t in ts)
+            push!(ts, t)
+            push!(ws, cumulative_lineages(t1, TN, fop.rho) -
+                cumulative_lineages(t0, TN, fop.rho))
         end
-        if isempty(ts)
-            @info "refine_model: no split found, $nep epochs"
-            return best
-        end
-        @debug "refine_model: proposed splits " ts
-
-        fs = Vector{FitResult}(undef, length(ts))
-        fops = Vector{FitOptions}(undef, length(ts))
-        for j in eachindex(ts)
-            fops[j] = deepcopy(fop)
-            setnepochs!(fops[j], nep + 1)
-            setonlyN!(fops[j], true)
-            init = get_para(best)
-            epochfinder!(init, ts[j], fops[j])
-            setinit!(fops[j], init)
-        end
-        @threads for j in eachindex(ts)
-            fs[j] = fitNs!(fops[j], h)
-        end
-
-        kept = Int[]
-        for j in eachindex(fs)
-            if fs[j].lp < best.lp
-                @error "refine_model: ll not improved splitting at $(ts[j]) with $nep epochs. Please report an issue"
-            else
-                push!(kept, j)
-            end
-        end
-        isempty(kept) && return best
-        b = kept[argmax(map(j -> evd(fs[j]), kept))]
-        @debug "best " ts[b] fs[b].lp evd(fs[b]) fs[b].converged
-        evd(fs[b]) <= evd(best) && return best
-
-        best = fs[b]
-        @assert all(!isnan, best.para) """
-            NaN parameters $(best.para)
-            $(best.lp)
-            $(best.opt.init)
-        """
-        setnepochs!(fop, best.nepochs)
-        setonlyN!(fop, true)
-        setinit!(fop, get_para(best))
     end
-    return best
+    # splits are dropped starting from the epoch with the fewest lineages
+    perm = sortperm(ws)
+    ts = ts[perm]
+    nsplits = length(ts)
+    nsplits == 0 && @info "refine_model: no split found, $nepochs0 epochs"
+    @debug "refine_model: proposed splits " ts ws[perm]
+
+    # the k-th model keeps the k splits lying in the richest epochs
+    fops = Vector{FitOptions}(undef, nsplits)
+    for k in 1:nsplits
+        fops[k] = deepcopy(fop)
+        init = collect(float.(TN))
+        for (n, t) in enumerate(sort(ts[nsplits-k+1:end]))
+            setnepochs!(fops[k], nepochs0 + n)
+            epochfinder!(init, t, fops[k])
+        end
+        setonlyN!(fops[k], true) # before setinit!, to keep the proposed L and Ts
+        setinit!(fops[k], init)
+    end
+
+    setnepochs!(fop, nepochs0)
+    setonlyN!(fop, true)
+    setinit!(fop, TN)
+    fits = Vector{FitResult}(undef, nsplits + 1)
+    fits[end] = fitNs!(fop, h)
+    @threads for k in 1:nsplits
+        fits[nsplits-k+1] = fitNs!(fops[k], h)
+    end
+
+    for f in fits
+        @assert all(!isnan, f.para) """
+            NaN parameters $(f.para)
+            $(f.lp)
+            $(f.opt.init)
+        """
+    end
+    for i in 1:nsplits
+        # each model nests the following, less complex, one
+        if fits[i].lp < fits[i+1].lp
+            @error "refine_model: ll not improved with $(fits[i].nepochs) epochs. Please report an issue"
+        end
+    end
+    return fits
 end
