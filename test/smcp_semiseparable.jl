@@ -59,3 +59,67 @@ end
         end
     end
 end
+
+# Full pre-change prordn!, kept verbatim as the regression reference.
+function dense_prordn(rs, edges, rate, order, ndt, TN)
+    nrs = length(rs)
+    ts, om = nodes(ndt, TN)
+    qs = [SMCp.pt(t, TN) for t in ts]
+    qtt = zeros(ndt, ndt)
+    for a in 1:ndt, b in 1:ndt
+        w = a == b ? 1.0 : om[b]
+        qtt[b, a] = max(ptt(ts[a], ts[b], TN), 0.0) * w
+    end
+    res = zeros(nrs, order)
+    jprt = zeros(ndt, nrs)
+    temp = zeros(nrs, ndt)
+    for i in 1:nrs, j in 1:ndt
+        jprt[j, i] = rate * exp(-2rate * rs[i] * ts[j]) * qs[j]
+    end
+    for i in 1:nrs
+        res[i, 1] = SMCp.firstorder(rs[i], rate, TN)
+    end
+    for o in 1:order-1
+        for i in 1:nrs, j in 1:ndt
+            temp[i, j] = sum(jprt[k, i] * qtt[k, j] for k in 1:ndt)
+        end
+        for j in 1:ndt
+            acc = 0.0
+            for i in 1:nrs
+                w = edges[i+1] - edges[i]
+                s = acc * exp(-2rate * (rs[i] - edges[i]) * ts[j])
+                wi = w <= 1 ? w : rs[i] - edges[i]
+                s += temp[i, j] * (-expm1(-2rate * wi * ts[j])) / 2ts[j]
+                jprt[j, i] = s
+                frac = (-expm1(-2rate * w * ts[j])) / 2ts[j]
+                acc = exp(-2rate * w * ts[j]) * acc + temp[i, j] * frac
+            end
+        end
+        for i in 1:nrs
+            res[i, o+1] = sum(jprt[j, i] * 2 * ts[j] * om[j] for j in 1:ndt)
+        end
+    end
+    res
+end
+
+@testset "prordn! matches the dense reference" begin
+    TNs = [
+        [3.0e9, 10000.0],
+        [3.0e9, 20000.0, 2500.0, 2000.0, 500.0, 10000.0],
+        [3.0e9, 20000.0, 60000.0, 8000.0, 8000.0, 16000.0, 1600.0, 2000.0, 400.0, 10000.0],
+    ]
+    edges = vcat(collect(1.0:1.0:60.0),
+                 exp.(range(log(61.0), log(2.0e4), length = 25)))
+    rs = [(edges[i+1] - edges[i]) <= 1 ? edges[i] : sqrt(edges[i] * edges[i+1])
+          for i in 1:length(edges)-1]
+    order, ndt = 6, 120
+    for TN in TNs, (mu, rho) in ((1.25e-8, 1.0e-8), (1.0e-8, 8.0e-8))
+        rate = mu + rho
+        bag = IntegralArrays(order, ndt, length(rs), Val{length(TN)})
+        SMCp.prordn!(bag, rs, edges, rate, TN)
+        got = get_tmp(bag.res, eltype(TN))
+        want = dense_prordn(rs, edges, rate, order, ndt, TN)
+        @test size(got) == size(want)
+        @test got ≈ want rtol = 1e-12
+    end
+end

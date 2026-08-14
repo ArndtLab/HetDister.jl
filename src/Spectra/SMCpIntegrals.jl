@@ -156,28 +156,32 @@ struct IntegralArrays{T}
     res::DiffCache{Matrix{T},Vector{T}}
     jprt::DiffCache{Matrix{T},Vector{T}}
     temp::DiffCache{Matrix{T},Vector{T}}
-    qtt::DiffCache{Matrix{T},Vector{T}}
     zs::Vector{Float64}
     wt::Vector{Float64}
     ts::DiffCache{Vector{T},Vector{T}}
-    qs::DiffCache{Vector{T},Vector{T}}
     dts::DiffCache{Vector{T},Vector{T}}
+    qs::DiffCache{Vector{T},Vector{T}}
+    om::DiffCache{Vector{T},Vector{T}}
+    Phi::DiffCache{Vector{T},Vector{T}}
+    dgn::DiffCache{Vector{T},Vector{T}}
+    Gc::DiffCache{Vector{T},Vector{T}}
+    Ninv::DiffCache{Vector{T},Vector{T}}
+    dC::DiffCache{Vector{T},Vector{T}}
 end
 
 function IntegralArrays(order::Int, ndt::Int, nrs::Int, chunk, levels = 1)
     t, w = gausslegendre(ndt)
+    dcvec() = DiffCache(zeros(Float64, ndt), chunk; levels)
     IntegralArrays(
         order, ndt, nrs,
         DiffCache(zeros(Float64, nrs), chunk; levels),
         DiffCache(zeros(Float64, nrs, order), chunk; levels),
         DiffCache(zeros(Float64, ndt, nrs), chunk; levels),
         DiffCache(zeros(Float64, nrs, ndt), chunk; levels),
-        DiffCache(zeros(Float64, ndt, ndt), chunk; levels),
         t,
         w,
-        DiffCache(zeros(Float64, ndt), chunk; levels),
-        DiffCache(zeros(Float64, ndt), chunk; levels),
-        DiffCache(zeros(Float64, ndt), chunk; levels)
+        dcvec(), dcvec(), dcvec(), dcvec(), dcvec(),
+        dcvec(), dcvec(), dcvec(), dcvec()
     )
 end
 
@@ -185,32 +189,35 @@ function prordn!(bag::IntegralArrays,
     rs::AbstractVector{<:Real}, edges::AbstractVector{<:Real}, rate::Real,
     TN::AbstractVector{<:Real}
 )
-    res_ = get_tmp(bag.res, eltype(TN))
-    jprt_ = get_tmp(bag.jprt, eltype(TN))
-    temp_ = get_tmp(bag.temp, eltype(TN))
-    qtt_ = get_tmp(bag.qtt, eltype(TN))
-    ts_ = get_tmp(bag.ts, eltype(TN))
-    dts_ = get_tmp(bag.dts, eltype(TN))
-    qs_ = get_tmp(bag.qs, eltype(TN))
-    prordn!(res_,
-        jprt_,
-        temp_,
-        qtt_,
+    T = eltype(TN)
+    prordn!(
+        get_tmp(bag.res, T),
+        get_tmp(bag.jprt, T),
+        get_tmp(bag.temp, T),
         bag.zs,
         bag.wt,
-        ts_,
-        qs_,
-        dts_,
+        get_tmp(bag.ts, T),
+        get_tmp(bag.dts, T),
+        get_tmp(bag.qs, T),
+        get_tmp(bag.om, T),
+        get_tmp(bag.Phi, T),
+        get_tmp(bag.dgn, T),
+        get_tmp(bag.Gc, T),
+        get_tmp(bag.Ninv, T),
+        get_tmp(bag.dC, T),
         rs, edges, rate, bag.order, bag.n_dt, bag.nrs, TN
     )
     return nothing
 end
 
 function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
-    temp::AbstractMatrix{<:Real}, qtt::AbstractMatrix{<:Real},
+    temp::AbstractMatrix{<:Real},
     zs::AbstractVector{<:Real}, wt::AbstractVector{<:Real},
     ts::AbstractVector{<:Real}, dts::AbstractVector{<:Real}, qs::AbstractVector{<:Real},
-    rs::AbstractVector{<:Real}, edges::AbstractVector{<:Real}, rate::Real, order::Int, n_dt::Int, nrs::Int,
+    om::AbstractVector{<:Real}, Phi::AbstractVector{<:Real}, dgn::AbstractVector{<:Real},
+    Gc::AbstractVector{<:Real}, Ninv::AbstractVector{<:Real}, dC::AbstractVector{<:Real},
+    rs::AbstractVector{<:Real}, edges::AbstractVector{<:Real}, rate::Real,
+    order::Int, n_dt::Int, nrs::Int,
     TN::AbstractVector{<:Real}
 )
     @assert length(rs) == nrs
@@ -224,7 +231,9 @@ function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
         ts[j] = t
         dts[j] = dt
         qs[j] = pt(t, TN)
+        om[j] = wt[j] * dt
     end
+    sepkernel!(Phi, dgn, Gc, Ninv, dC, ts, TN)
     @threads for i in 1:nrs
         @inbounds for j in 1:n_dt
             p = rate * exp(-2rate * rs[i] * ts[j])
@@ -232,23 +241,11 @@ function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
         end
         res[i,1] = firstorder(rs[i], rate, TN)
     end
-    @threads for i in 1:n_dt
-        @inbounds for j in 1:n_dt
-            w = i == j ? 1. : wt[j] * dts[j]
-            p = max(ptt(ts[i], ts[j], TN), 0.)
-            qtt[j,i] = p * w
-        end
-    end
     for o in 1:order-1
+        # transition t integral: the kernel is semiseparable, so each column
+        # costs O(n_dt) instead of O(n_dt^2)
         @threads for i in 1:nrs
-            # transition t integral
-            @inbounds for j in 1:n_dt
-                s = 0.
-                for k in 1:n_dt
-                    @fastmath s += jprt[k,i] * qtt[k,j]
-                end
-                temp[i,j] = s
-            end
+            transition!(temp, jprt, i, Phi, dgn, Gc, Ninv, dC, om, n_dt)
         end # I am modifying jprt in the end, so need to finish all temp first
         # the inner loop is variable in r, more efficient to multithread 
         # the time loop and separate the terminal t integral below (only
@@ -281,7 +278,7 @@ function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
             @inbounds for j in 1:n_dt
                 # terminal t integral part
                 # 2t factor from p(r|t) here does not simplify
-                s2 += jprt[j,i] * 2 * ts[j] * wt[j] * dts[j]
+                s2 += jprt[j,i] * 2 * ts[j] * om[j]
             end
             res[i,o+1] = s2
         end
