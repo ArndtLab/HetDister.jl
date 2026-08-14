@@ -74,6 +74,59 @@ function ptt(ti::Real, tj::Real, TN::AbstractVector{<:Real}) # ti given tj
     end
 end
 
+# The transition kernel ptt is diagonal + rank-one lower + rank-one upper.
+# With G(t) = N(t) + R(t) - N(0)exp(-C(t)):
+#   ptt(t|t') = G(t)/N(t)                                for t < t'
+#             = t - G(t)                                 for t = t'
+#             = [exp(-C(t)/2)/N(t)]*[exp(C(t')/2)G(t')]  for t > t'
+# Clamping ptt to zero is equivalent to clamping G, because exp(-C/2)/N > 0.
+# Note dgn uses the UNCLAMPED G; Phi and Gc use the clamped one.
+# ts must be ascending.
+function sepkernel!(Phi::AbstractVector{<:Real}, dgn::AbstractVector{<:Real},
+    Gc::AbstractVector{<:Real}, Ninv::AbstractVector{<:Real}, dC::AbstractVector{<:Real},
+    ts::AbstractVector{<:Real}, TN::AbstractVector{<:Real}
+)
+    n = length(ts)
+    n0 = Nt(0, TN)
+    cprev = zero(eltype(Phi))
+    @inbounds for j in 1:n
+        t = ts[j]
+        c = cumcr(0, t, TN)
+        nt = Nt(t, TN)
+        g = nt + margrecomb(t, TN) - n0 * exp(-c)
+        Gc[j] = max(g, zero(g))
+        Phi[j] = Gc[j] / nt
+        dgn[j] = max(t - g, zero(g))
+        Ninv[j] = 1 / nt
+        j > 1 && (dC[j-1] = c - cprev)
+        cprev = c
+    end
+    dC[n] = zero(eltype(dC))
+    return nothing
+end
+
+# temp[i,:] = M * jprt[:,i], with M the semiseparable transition operator.
+# One backward pass for the upper triangle, one forward pass for the
+# rescaled lower-triangle prefix sum plus the diagonal atom.
+function transition!(temp::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real}, i::Int,
+    Phi::AbstractVector{<:Real}, dgn::AbstractVector{<:Real}, Gc::AbstractVector{<:Real},
+    Ninv::AbstractVector{<:Real}, dC::AbstractVector{<:Real}, om::AbstractVector{<:Real},
+    ndt::Int
+)
+    T = eltype(temp)
+    sfx = zero(T)
+    @inbounds for j in ndt:-1:1
+        temp[i,j] = Phi[j] * sfx
+        sfx += jprt[j,i] * om[j]
+    end
+    st = zero(T)
+    @inbounds for j in 1:ndt
+        temp[i,j] += st * Ninv[j] + dgn[j] * jprt[j,i]
+        st = exp(-dC[j]/2) * (st + Gc[j] * jprt[j,i] * om[j])
+    end
+    return nothing
+end
+
 function tolaguerre(z, TN::AbstractVector{<:Real})
     epoch = 1
     ce = 0

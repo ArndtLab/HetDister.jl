@@ -12,6 +12,7 @@ using IBSpector.Spectra
 
 include("Aqua.jl")
 include("spectra.jl")
+include("smcp_semiseparable.jl")
 
 const LOCAL = false
 
