@@ -107,6 +107,7 @@ struct IntegralArrays{T}
     zs::Vector{Float64}
     wt::Vector{Float64}
     ts::DiffCache{Vector{T},Vector{T}}
+    qs::DiffCache{Vector{T},Vector{T}}
     dts::DiffCache{Vector{T},Vector{T}}
 end
 
@@ -122,6 +123,7 @@ function IntegralArrays(order::Int, ndt::Int, nrs::Int, chunk, levels = 1)
         t,
         w,
         DiffCache(zeros(Float64, ndt), chunk; levels),
+        DiffCache(zeros(Float64, ndt), chunk; levels),
         DiffCache(zeros(Float64, ndt), chunk; levels)
     )
 end
@@ -136,6 +138,7 @@ function prordn!(bag::IntegralArrays,
     qtt_ = get_tmp(bag.qtt, eltype(TN))
     ts_ = get_tmp(bag.ts, eltype(TN))
     dts_ = get_tmp(bag.dts, eltype(TN))
+    qs_ = get_tmp(bag.qs, eltype(TN))
     prordn!(res_,
         jprt_,
         temp_,
@@ -143,6 +146,7 @@ function prordn!(bag::IntegralArrays,
         bag.zs,
         bag.wt,
         ts_,
+        qs_,
         dts_,
         rs, edges, rate, bag.order, bag.n_dt, bag.nrs, TN
     )
@@ -152,7 +156,7 @@ end
 function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
     temp::AbstractMatrix{<:Real}, qtt::AbstractMatrix{<:Real},
     zs::AbstractVector{<:Real}, wt::AbstractVector{<:Real},
-    ts::AbstractVector{<:Real}, dts::AbstractVector{<:Real},
+    ts::AbstractVector{<:Real}, dts::AbstractVector{<:Real}, qs::AbstractVector{<:Real},
     rs::AbstractVector{<:Real}, edges::AbstractVector{<:Real}, rate::Real, order::Int, n_dt::Int, nrs::Int,
     TN::AbstractVector{<:Real}
 )
@@ -162,14 +166,16 @@ function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
     jprt .= 0
     temp .= 0
 
+    @threads for j in 1:n_dt
+        t, dt = tolegendre(zs[j], TN)
+        ts[j] = t
+        dts[j] = dt
+        qs[j] = pt(t, TN)
+    end
     @threads for i in 1:nrs
         @inbounds for j in 1:n_dt
-            t, dt = tolegendre(zs[j], TN)
-            ts[j] = t
-            dts[j] = dt
-            q = pt(t, TN)
-            p = rate * exp(-2rate * rs[i] * t)
-            jprt[j,i] = p * q
+            p = rate * exp(-2rate * rs[i] * ts[j])
+            jprt[j,i] = p * qs[j]
         end
         res[i,1] = firstorder(rs[i], rate, TN)
     end
@@ -195,21 +201,26 @@ function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
         # the time loop and separate the terminal t integral below (only
         # additional linear cost when single threaded)
         @threads for j in 1:n_dt
+            # convolution r integral
+            # the contribution of all previous (completed) bins k < i decays
+            # multiplicatively with r, so instead of recomputing the full
+            # sum over k = 1:i-1 at every i (O(nrs^2)), we carry it forward
+            # in `acc`, rolling it from edges[i] to edges[i+1] at each step
+            # (O(nrs)). `acc` holds the sum evaluated at the left edge of
+            # bin i; it is then shifted to rs[i] to get jprt[j,i].
+            acc = 0.
             @inbounds for i in 1:nrs
-                # convolution r integral
-                s = 0.
-                for k in 1:i-1
-                    w = edges[k+1] - edges[k]
-                    s += temp[k,j] * exp(-2rate * (rs[i]-edges[k+1]) * ts[j]) * (- expm1(-2rate * w * ts[j])) / 2ts[j]
-                end
                 w = edges[i+1] - edges[i]
+                s = acc * exp(-2rate * (rs[i] - edges[i]) * ts[j])
                 if w <= 1
                     s += temp[i,j] * (- expm1(-2rate * w * ts[j])) / 2ts[j]
                 else
-                    w = rs[i] - edges[i]
-                    s += temp[i,j] * (- expm1(-2rate * w * ts[j])) / 2ts[j]
+                    wi = rs[i] - edges[i]
+                    s += temp[i,j] * (- expm1(-2rate * wi * ts[j])) / 2ts[j]
                 end
                 jprt[j,i] = s
+                frac = (- expm1(-2rate * w * ts[j])) / 2ts[j]
+                acc = exp(-2rate * w * ts[j]) * acc + temp[i,j] * frac
             end
         end
         @threads for i in 1:nrs
