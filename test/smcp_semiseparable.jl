@@ -123,3 +123,30 @@ end
         @test got ≈ want rtol = 1e-12
     end
 end
+
+@testset "prordn! is ForwardDiff-differentiable" begin
+    edges = collect(1.0:1.0:40.0)
+    rs = collect(1.0:1.0:39.0)
+    order, ndt = 4, 60
+    TN0 = [3.0e9, 20000.0, 2500.0, 2000.0, 500.0, 10000.0]
+
+    function total(TN)
+        bag = IntegralArrays(order, ndt, length(rs), Val{length(TN)})
+        SMCp.prordn!(bag, rs, edges, 2.25e-8, TN)
+        sum(get_tmp(bag.res, eltype(TN)))
+    end
+
+    g = ForwardDiff.gradient(total, TN0)
+    @test length(g) == length(TN0)
+    @test all(isfinite, g)
+    @test any(!iszero, g)
+
+    # central differences on the population-size entries (indices 2, 4, 6)
+    for k in (2, 4, 6)
+        h = 1e-3 * TN0[k]
+        tp = copy(TN0); tp[k] += h
+        tm = copy(TN0); tm[k] -= h
+        fd = (total(tp) - total(tm)) / 2h
+        @test isapprox(g[k], fd; rtol = 1e-4, atol = 1e-8 * abs(g[k]))
+    end
+end
