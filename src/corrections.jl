@@ -23,7 +23,10 @@ Return a named tuple which contains the fields:
 - `ybest`: a vector of expected weights corresponding 
   to the best fit, one for each model
 - `resid`: a vector of vectors of residuals, one for each model
-- `p`: a vector of right-tail p-values for the autocorrelation of residuals, one for each model
+- `p`: a vector of p-values for the autocorrelation of residuals, one for each model.
+  These are Ljung-Box tests, and might be affected by the numeber of bins included in
+  the fit realtive to the estimated parameters. Additionally in the tail counts are low,
+  then a Poisson model implies that many (autocorrelated) zeros can be expected.
 - `llbest`: a vector of the best log-likelihoods, one for each model
 - `deltas`: a vector of vectors of the maximum absolute difference between
   corrections in consecutive iterations, and for each model.
@@ -129,6 +132,7 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
     @assert epochs > 0 "epochrange has to be strictly positive"
     @assert iters > 0 "number of iterations has to be strictly positive"
     @assert th_discr >= 1 "th_discr must be at least 1"
+    @assert fop_.locut < length(h_obs.weights) "locut must be less than the number of bins in the histogram"
     if fop_.mu < fop_.rho
         @warn "the method is currently designed for mu >= rho, results may be biased"
     end
@@ -171,7 +175,8 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
         push!(corrections, corr)
 
         rho = ramp(iter, fop.mu, fop.rho)
-        mldsmcp!(bag, 1:fop.order, rs_th, hth, fop.mu, rho, init)
+        order_ = getorder(2e-5, fop.mu, rho)
+        mldsmcp!(bag, 1:order_, rs_th, hth, fop.mu, rho, init)
         yth_fine = get_tmp(bag.ys, eltype(init))
         wth_fine = yth_fine .* diff(hth)
         wth = map_fine_to_coarse(wth_fine, hth, h_obs.edges[1])
@@ -216,13 +221,9 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
     f = chain[best]
     ll = lls[best]
     resid = compute_residuals(h_obs, ybest)
-    lim = findfirst(h_obs.weights .== 0)
-    if isnothing(lim)
-        lim = length(resid)
-    elseif lim <= fop.locut
-        lim = fop.locut + 1
-    end
-    p = residstructure(resid[fop.locut:lim])
+    dof = length(get_para(f))
+    lag = max(10, length(resid) ÷ 8, dof+5)
+    p = pvalue(LjungBoxTest(resid[fop.locut:end], lag, dof))
 
     temp = h_obs.weights .- corrections[best]
     temp .= round.(Int, temp)

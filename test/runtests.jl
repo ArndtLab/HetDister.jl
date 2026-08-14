@@ -151,7 +151,7 @@ end
     @test !any(ws .< 0)
     resid = compute_residuals(h, ws./diff(h.edges[1]))
     @test !any(isnan.(resid))
-    p = residstructure(resid)
+    p = residstructure(h.weights, ws)
 
     ibs2 = get_sim(TN, mu, rho)
     h2 = Histogram(h.edges)

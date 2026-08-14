@@ -11,7 +11,7 @@ export getts, getns,
 
 function getts(TN::AbstractVector{T}, i::Int) where T
     # TN = [L, N0, T1, N1, T2, N2, ...]
-    # returns the ordered times in reverse order
+    # returns the ordered absolute times from present, including 0
     (i < 1 || i > length(TN) ÷ 2) && throw(ArgumentError("index out of bounds"))
     s = zero(T)
     for j in 2:i
@@ -22,7 +22,7 @@ end
 
 function getns(TN::AbstractVector{T}, i::Int) where T
     # TN = [L, N0, T1, N1, T2, N2, ...]
-    # returns the ordered population sizes in reverse order
+    # returns the ordered population sizes in reverse order (from present to past)
     (i < 1 || i > length(TN) ÷ 2) && throw(ArgumentError("index out of bounds"))
     return TN[end-2*(i-1)]
 end
