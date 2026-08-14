@@ -4,6 +4,7 @@ using StatsBase, Distributions, HistogramBinnings
 using LinearAlgebra, Statistics
 using Turing, Optim
 using StatsAPI
+using HypothesisTests
 using Printf
 using DynamicPPL, ForwardDiff, Accessors
 using Random
@@ -22,7 +23,7 @@ include("corrections.jl")
 
 export pre_fit!, demoinfer, compare_models, sample_model_epochs,
     get_para, evd, loglike, sds, pop_sizes, durations, times, get_covar, flags,
-    adapt_histogram,
+    adapt_histogram, residstructure,
     FitResult, FitOptions, setOptimOptions!,
     laplacekingman, mldsmcp,
     extbps,
@@ -99,23 +100,28 @@ function compute_residuals(h1::Histogram, h2::Histogram; fc1 = 1.0, fc2 = 1.0)
     return residuals
 end
 
-"""
-    residstructure(residuals::AbstractVector{<:Real})
 
-Compute the p-value for the autocorrelation of adjacent residuals.
-The p-value is the right tail of the t-distribution.
 """
-function residstructure(residuals::AbstractVector{<:Real})
-    l = length(residuals)
-    if l % 2 == 1
-        l -= 1
-    end
-    x1 = 1:2:l-1
-    x2 = 2:2:l
-    c = cor(view(residuals, x1), view(residuals, x2))
-    t = c * sqrt((l÷2 - 2)/(1-c^2))
-    p = StatsAPI.pvalue(Distributions.TDist(l÷2 - 2), t; tail=:right)
-    return p
+    residstructure(w_true, w_pred; ptot = 0.05)
+
+Compute the residuals and their confidence intervals for a given
+pair of observed and predicted weights. Return both single-bin
+and family-wise confidence intervals.
+"""
+function residstructure(w_true::AbstractVector{<:Real}, w_pred::AbstractVector{<:Real}; ptot = 0.05)
+    @assert length(w_true) == length(w_pred)
+    resid = (w_true .- w_pred) ./ sqrt.(w_pred)
+    @assert all(isfinite.(resid))
+    p = ptot / length(resid)
+    qhifam = quantile.(Poisson.(w_pred), 1-p/2)
+    qlofam = quantile.(Poisson.(w_pred), p/2)
+    resid_hifam = (qhifam .- w_pred) ./ sqrt.(w_pred)
+    resid_lofam = (qlofam .- w_pred) ./ sqrt.(w_pred)
+    qhi = quantile.(Poisson.(w_pred), 1-ptot/2)
+    qlo = quantile.(Poisson.(w_pred), ptot/2)
+    resid_hi = (qhi .- w_pred) ./ sqrt.(w_pred)
+    resid_lo = (qlo .- w_pred) ./ sqrt.(w_pred)
+    return resid, resid_hi, resid_lo, resid_hifam, resid_lofam
 end
 
 function CustomEdgeVector(; lo = 1, hi = 10, nbins::Integer)

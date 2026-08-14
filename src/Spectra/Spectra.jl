@@ -20,8 +20,9 @@ export
 """
 	mldsmcp(rs, edges, mu, rho, TN; order = 10, ndt = 800)
 
-Compute the expected number of segments with length in each bin defined by `edges`,
-given the midpoints `rs`, mutation rate `mu`, recombination rate `rho`, and
+Compute the expected number of segments at representative lengths `rs` 
+that are midpoints of log bins defined by `edges`,
+given the mutation rate `mu`, recombination rate `rho`, and
 population size history `TN`.
 
 The computation uses the SMC' higher order transition probabilities
