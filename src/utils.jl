@@ -143,6 +143,12 @@ function fraction(mu, rho, n)
     mu/(mu+rho) * (rho/(mu+rho))^(n-1)
 end
 
+function getorder(cutoff, mu, rho)
+    o = findfirst(map(i->fraction(mu,rho,i),1:50) .< cutoff)
+    isnothing(o) && (o = 50)
+    return o
+end
+
 mutable struct Deltas
     factors::Vector{Float64}
     state::Integer
@@ -293,9 +299,7 @@ function FitOptions(Ltot, nhet, mu, rho;
     end
     cutoff = 2e-5 # fraction of segments contributing to higher orders
     if iszero(order)
-        o = findfirst(map(i->fraction(mu,rho,i),1:50) .< cutoff)
-        isnothing(o) && (o = 50)
-        order = o
+        order = getorder(cutoff, mu, rho)
     end
 
     solver = LBFGS()
