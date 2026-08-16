@@ -7,7 +7,7 @@ using PreallocationTools
 
 using ..CoalescentBase
 
-export IntegralArrays, prordn!,
+export IntegralArrays, prordn!, fusedsweep!, getnpicard,
     firstorder, firstorderint
 
 
@@ -282,6 +282,130 @@ function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
             end
             res[i,o+1] = s2
         end
+    end
+    return nothing
+end
+
+"""
+    getnpicard(mu, rho)
+
+Number of Picard iterations (`M`-applies) per bin the fused sweep needs so that
+its discretisation error stays below `1e-2` Poisson sigma at the production
+binning (`nbins = ndt = 800`, whole-genome `L`).  Plays for `fusedsweep!` the
+role `getorder` plays for the order loop.
+
+Calibrated in §7.3 of `notes/smcp-integrals-notes.tex` against an order-400
+reference, over `hi` from `3e4` to `5e7`; the worst case at each branch is
+`1.9e-3` (alpha 0.5), `2.2e-3` (alpha 0.667) and `8.5e-3` (alpha 0.8).
+"""
+function getnpicard(mu::Real, rho::Real)
+    alpha = rho / (mu + rho)
+    alpha <= 0.55 && return 2
+    alpha <= 0.72 && return 3
+    return 4
+end
+
+# out = M * x. Vector form of the transition! above; same two passes, same
+# clamp conventions. Used by the fused sweep, which has no nrs dimension.
+function transition!(out::AbstractVector{<:Real}, x::AbstractVector{<:Real},
+    Phi::AbstractVector{<:Real}, dgn::AbstractVector{<:Real}, Gc::AbstractVector{<:Real},
+    Ninv::AbstractVector{<:Real}, dC::AbstractVector{<:Real}, om::AbstractVector{<:Real},
+    ndt::Int
+)
+    T = eltype(out)
+    sfx = zero(T)
+    @inbounds for j in ndt:-1:1
+        out[j] = Phi[j] * sfx
+        sfx += x[j] * om[j]
+    end
+    st = zero(T)
+    @inbounds for j in 1:ndt
+        out[j] += st * Ninv[j] + dgn[j] * x[j]
+        st = exp(-dC[j]/2) * (st + Gc[j] * x[j] * om[j])
+    end
+    return nothing
+end
+
+"""
+    fusedsweep!(ys, ts, dts, qs, om, Phi, dgn, Gc, Ninv, dC, A, Jc, Jf, MJ, J1,
+                zs, wt, rs, edges, mu, rho, npicard, n_dt, nrs, TN)
+
+One forward sweep in `r` over the Volterra form of the SMC' recursion, writing
+the expected number of segments at `rs` into `ys`.
+
+Solves `J = J_1 + alpha * conv(M J)` by forward substitution instead of
+truncating the Neumann series at `order`, so **all** orders are resolved. Each
+bin is one exponential-Euler step (stiff `-2*rate*t` term exact, `expm1` against
+small-argument cancellation, only non-negative terms added), closed by `npicard`
+Picard iterations because `M J` on the bin depends on `J` itself. `MJ` carries
+over from the previous bin as the seed.
+
+Unlike `prordn!` this is sequential in `r` and cannot be threaded over `nrs`.
+It does not write `res`: per-order diagnostics require `prordn!`.
+"""
+function fusedsweep!(ys::AbstractVector{<:Real},
+    ts::AbstractVector{<:Real}, dts::AbstractVector{<:Real}, qs::AbstractVector{<:Real},
+    om::AbstractVector{<:Real}, Phi::AbstractVector{<:Real}, dgn::AbstractVector{<:Real},
+    Gc::AbstractVector{<:Real}, Ninv::AbstractVector{<:Real}, dC::AbstractVector{<:Real},
+    A::AbstractVector{<:Real}, Jc::AbstractVector{<:Real}, Jf::AbstractVector{<:Real},
+    MJ::AbstractVector{<:Real}, J1::AbstractVector{<:Real},
+    zs::AbstractVector{<:Real}, wt::AbstractVector{<:Real},
+    rs::AbstractVector{<:Real}, edges::AbstractVector{<:Real}, mu::Real, rho::Real,
+    npicard::Int, n_dt::Int, nrs::Int,
+    TN::AbstractVector{<:Real}
+)
+    @assert length(rs) == nrs
+    @assert length(edges) == nrs + 1
+    @assert npicard >= 1
+
+    T = eltype(ys)
+    rate = mu + rho
+    alpha = rho / rate
+
+    @threads for j in 1:n_dt
+        t, dt = tolegendre(zs[j], TN)
+        ts[j] = t
+        dts[j] = dt
+        qs[j] = pt(t, TN)
+        om[j] = wt[j] * dt
+    end
+    sepkernel!(Phi, dgn, Gc, Ninv, dC, ts, TN)
+
+    fill!(A, zero(T))
+    fill!(MJ, zero(T))
+
+    scale = 2 * mu * TN[1] * (mu / rate)
+    @inbounds for i in 1:nrs
+        w = edges[i+1] - edges[i]
+        # Unit bins hold exactly the segments of length edges[i], so their
+        # representative point is the lower edge and the self-bin contribution
+        # spans the full width. Wider bins report a density at the geometric
+        # midpoint and use the partial width. The carried accumulator always
+        # advances by the full width. See §6 of the spec.
+        wi = w <= 1 ? w : rs[i] - edges[i]
+        for j in 1:n_dt
+            J1[j] = rate * exp(-2rate * rs[i] * ts[j]) * qs[j]
+        end
+        for _ in 1:npicard
+            for j in 1:n_dt
+                t = ts[j]
+                Jc[j] = A[j] * exp(-2rate * (rs[i] - edges[i]) * t) +
+                        alpha * MJ[j] * (- expm1(-2rate * wi * t)) / 2t
+                Jf[j] = J1[j] + Jc[j]
+            end
+            transition!(MJ, Jf, Phi, dgn, Gc, Ninv, dC, om, n_dt)
+        end
+        s = zero(T)
+        for j in 1:n_dt
+            t = ts[j]
+            # terminal t integral of the convolution part; 2t from p(r|t)
+            s += Jc[j] * 2 * t * om[j]
+            # roll the accumulator from edges[i] to edges[i+1]
+            A[j] = exp(-2rate * w * t) * A[j] +
+                   alpha * MJ[j] * (- expm1(-2rate * w * t)) / 2t
+        end
+        # order 1 comes from the analytic firstorder, as in prordn!'s res[:,1]
+        ys[i] = (firstorder(rs[i], rate, TN) + s) * scale
     end
     return nothing
 end
