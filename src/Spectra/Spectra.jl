@@ -9,38 +9,62 @@ using .CoalescentBase
 include("SMCpIntegrals.jl")
 using .SMCpIntegrals
 
-export 
-    firstorder, firstorderint, 
-	laplacekingman, laplacekingmanint, 
-	mldsmcp, mldsmcp!, IntegralArrays,
+export
+    firstorder, firstorderint,
+	laplacekingman, laplacekingmanint,
+	mldsmcp, mldsmcp!, IntegralArrays, getnpicard,
 	extbps,
     lineages, cumulative_lineages, crediblehistory,
     sampleN, quantilesN
 
 """
-	mldsmcp(rs, edges, mu, rho, TN; order = 10, ndt = 800)
+	mldsmcp(rs, edges, mu, rho, TN; order = 10, ndt = 800, method = :fused, npicard = 0)
 
-Compute the expected number of segments at representative lengths `rs` 
+Compute the expected number of segments at representative lengths `rs`
 that are midpoints of log bins defined by `edges`,
 given the mutation rate `mu`, recombination rate `rho`, and
 population size history `TN`.
 
-The computation uses the SMC' higher order transition probabilities
-with `order` maximum number of intermediate recombination events plus one,
-and `ndt` Legendre nodes for the numerical integration.
+`ndt` is the number of Legendre nodes for the time integration; the rule of
+thumb is `ndt == length(rs)`, and `800` is where the discretisation error drops
+below Poisson noise for a whole genome.
+
+With `method = :fused` (the default) a single forward sweep in `r` resolves all
+orders of the SMC' recursion, using `npicard` transition applies per bin
+(`npicard = 0` selects it with `getnpicard(mu, rho)`). With `method = :order`
+the Neumann series is truncated at `order` intermediate recombination events
+plus one, which is slower but produces the per-order `bag.res` columns.
 """
-function mldsmcp(rs, edges, mu, rho, TN; order = 10, ndt = 800)
+function mldsmcp(rs, edges, mu, rho, TN; order = 10, ndt = 800,
+	method::Symbol = :fused, npicard::Int = 0
+)
 	bag = IntegralArrays(order, ndt, length(rs), Val{length(TN)})
-	mldsmcp!(bag, 1:order, rs, edges, mu, rho, TN)
+	mldsmcp!(bag, 1:order, rs, edges, mu, rho, TN; method, npicard)
 	return get_tmp(bag.ys, eltype(TN))
 end
 
+"""
+	mldsmcp!(bag, range, rs, edges, mu, rho, TN; method = :order, npicard = 0)
+
+In-place `mldsmcp`, writing `bag.ys`. `method` defaults to `:order` here so
+that existing callers keep the order loop; `range` selects which orders are
+summed and is ignored when `method = :fused`, which always resolves all of
+them. On the fused path `bag.res` is filled with `NaN`, since per-order
+diagnostics are not produced.
+"""
 function mldsmcp!(bag::IntegralArrays, range::AbstractRange{<:Int},
     rs::AbstractVector{<:Real}, edges::AbstractVector{<:Real}, mu::Real, rho::Real,
-    TN::AbstractVector{<:Real}
+    TN::AbstractVector{<:Real}; method::Symbol = :order, npicard::Int = 0
 )
-    prordn!(bag, rs, edges, mu+rho, TN)
-	mldsmcp!(bag, range, mu, rho, TN)
+	if method === :fused
+		fusedsweep!(bag, rs, edges, mu, rho, TN; npicard)
+		fill!(get_tmp(bag.res, eltype(TN)), NaN)
+	elseif method === :order
+		prordn!(bag, rs, edges, mu+rho, TN)
+		mldsmcp!(bag, range, mu, rho, TN)
+	else
+		throw(ArgumentError("method must be :fused or :order, got :$method"))
+	end
 	return nothing
 end
 

@@ -135,3 +135,37 @@ end
         @test get_tmp(bag.ys, eltype(TN)) ≈ auto
     end
 end
+
+@testset "mldsmcp method keyword" begin
+    TN = [3.0e9, 20000.0, 2500.0, 2000.0, 500.0, 10000.0]
+    mu = 1.25e-8
+    rho = 4mu
+    ndt = 200
+    edges, rs = prodgrid(200, 30_000)
+
+    # :fused agrees with the direct bag call
+    got = mldsmcp(rs, edges, mu, rho, TN; ndt = ndt, method = :fused)
+    bag = IntegralArrays(10, ndt, length(rs), Val{length(TN)})
+    fusedsweep!(bag, rs, edges, mu, rho, TN)
+    @test got ≈ get_tmp(bag.ys, eltype(TN))
+
+    # :order reproduces the pre-change behaviour bit for bit
+    order = 12
+    want = mldsmcp(rs, edges, mu, rho, TN; order = order, ndt = ndt, method = :order)
+    bag2 = IntegralArrays(order, ndt, length(rs), Val{length(TN)})
+    SMCp.prordn!(bag2, rs, edges, mu + rho, TN)
+    mldsmcp!(bag2, 1:order, mu, rho, TN)
+    @test want == get_tmp(bag2.ys, eltype(TN))
+
+    # the mutating entry still defaults to the order loop
+    bag3 = IntegralArrays(order, ndt, length(rs), Val{length(TN)})
+    mldsmcp!(bag3, 1:order, rs, edges, mu, rho, TN)
+    @test get_tmp(bag3.ys, eltype(TN)) == want
+
+    # res is poisoned on the fused path so stale per-order reads are loud
+    bag4 = IntegralArrays(order, ndt, length(rs), Val{length(TN)})
+    mldsmcp!(bag4, 1:order, rs, edges, mu, rho, TN; method = :fused)
+    @test all(isnan, get_tmp(bag4.res, eltype(TN)))
+
+    @test_throws ArgumentError mldsmcp(rs, edges, mu, rho, TN; ndt = ndt, method = :bogus)
+end
