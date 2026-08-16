@@ -175,8 +175,7 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
         push!(corrections, corr)
 
         rho = ramp(iter, fop.mu, fop.rho)
-        order_ = getorder(2e-5, fop.mu, rho)
-        mldsmcp!(bag, 1:order_, rs_th, hth, fop.mu, rho, init)
+        mldsmcp!(bag, 1:bag.order, rs_th, hth, fop.mu, rho, init)
         yth_fine = get_tmp(bag.ys, eltype(init))
         wth_fine = yth_fine .* diff(hth)
         wth = map_fine_to_coarse(wth_fine, hth, h_obs.edges[1])

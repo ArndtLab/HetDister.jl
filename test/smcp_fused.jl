@@ -34,8 +34,8 @@ function rawfused(rs, edges, mu, rho, ndt, TN, npicard)
     zs, wt = SMCp.gausslegendre(ndt)
     v() = zeros(Float64, ndt)
     ys = zeros(Float64, nrs)
-    fusedsweep!(ys, v(), v(), v(), v(), v(), v(), v(), v(), v(),
-                v(), v(), v(), v(), v(),
+    fusedsweep!(ys, v(), v(), v(), v(), v(), v(), v(), v(),
+                v(), v(), v(), v(),
                 zs, wt, rs, edges, mu, rho, npicard, ndt, nrs, TN)
     ys
 end
@@ -158,10 +158,10 @@ end
     mldsmcp!(bag2, 1:order, mu, rho, TN)
     @test want == get_tmp(bag2.ys, eltype(TN))
 
-    # the mutating entry still defaults to the order loop
+    # the mutating entry defaults to the fused sweep, like mldsmcp
     bag3 = IntegralArrays(order, ndt, length(rs), Val{length(TN)})
     mldsmcp!(bag3, 1:order, rs, edges, mu, rho, TN)
-    @test get_tmp(bag3.ys, eltype(TN)) == want
+    @test get_tmp(bag3.ys, eltype(TN)) == got
 
     # res is poisoned on the fused path so stale per-order reads are loud
     bag4 = IntegralArrays(order, ndt, length(rs), Val{length(TN)})

@@ -45,17 +45,16 @@ function mldsmcp(rs, edges, mu, rho, TN; order = 10, ndt = 800,
 end
 
 """
-	mldsmcp!(bag, range, rs, edges, mu, rho, TN; method = :order, npicard = 0)
+	mldsmcp!(bag, range, rs, edges, mu, rho, TN; method = :fused, npicard = 0)
 
-In-place `mldsmcp`, writing `bag.ys`. `method` defaults to `:order` here so
-that existing callers keep the order loop; `range` selects which orders are
-summed and is ignored when `method = :fused`, which always resolves all of
-them. On the fused path `bag.res` is filled with `NaN`, since per-order
-diagnostics are not produced.
+In-place `mldsmcp`, writing `bag.ys`. `range` selects which orders are summed
+and is ignored by the default `method = :fused`, which always resolves all of
+them; it applies only to `method = :order`. On the fused path `bag.res` is
+filled with `NaN`, since per-order diagnostics are not produced.
 """
 function mldsmcp!(bag::IntegralArrays, range::AbstractRange{<:Int},
     rs::AbstractVector{<:Real}, edges::AbstractVector{<:Real}, mu::Real, rho::Real,
-    TN::AbstractVector{<:Real}; method::Symbol = :order, npicard::Int = 0
+    TN::AbstractVector{<:Real}; method::Symbol = :fused, npicard::Int = 0
 )
 	if method === :fused
 		fusedsweep!(bag, rs, edges, mu, rho, TN; npicard)

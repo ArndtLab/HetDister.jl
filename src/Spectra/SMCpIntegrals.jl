@@ -159,7 +159,6 @@ struct IntegralArrays{T}
     zs::Vector{Float64}
     wt::Vector{Float64}
     ts::DiffCache{Vector{T},Vector{T}}
-    dts::DiffCache{Vector{T},Vector{T}}
     qs::DiffCache{Vector{T},Vector{T}}
     om::DiffCache{Vector{T},Vector{T}}
     Phi::DiffCache{Vector{T},Vector{T}}
@@ -168,7 +167,6 @@ struct IntegralArrays{T}
     Ninv::DiffCache{Vector{T},Vector{T}}
     dC::DiffCache{Vector{T},Vector{T}}
     A::DiffCache{Vector{T},Vector{T}}
-    Jc::DiffCache{Vector{T},Vector{T}}
     Jf::DiffCache{Vector{T},Vector{T}}
     MJ::DiffCache{Vector{T},Vector{T}}
     J1::DiffCache{Vector{T},Vector{T}}
@@ -185,9 +183,9 @@ function IntegralArrays(order::Int, ndt::Int, nrs::Int, chunk, levels = 1)
         DiffCache(zeros(Float64, nrs, ndt), chunk; levels),
         t,
         w,
-        dcvec(), dcvec(), dcvec(), dcvec(), dcvec(),
         dcvec(), dcvec(), dcvec(), dcvec(),
-        dcvec(), dcvec(), dcvec(), dcvec(), dcvec()
+        dcvec(), dcvec(), dcvec(), dcvec(),
+        dcvec(), dcvec(), dcvec(), dcvec()
     )
 end
 
@@ -203,7 +201,6 @@ function prordn!(bag::IntegralArrays,
         bag.zs,
         bag.wt,
         get_tmp(bag.ts, T),
-        get_tmp(bag.dts, T),
         get_tmp(bag.qs, T),
         get_tmp(bag.om, T),
         get_tmp(bag.Phi, T),
@@ -219,7 +216,7 @@ end
 function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
     temp::AbstractMatrix{<:Real},
     zs::AbstractVector{<:Real}, wt::AbstractVector{<:Real},
-    ts::AbstractVector{<:Real}, dts::AbstractVector{<:Real}, qs::AbstractVector{<:Real},
+    ts::AbstractVector{<:Real}, qs::AbstractVector{<:Real},
     om::AbstractVector{<:Real}, Phi::AbstractVector{<:Real}, dgn::AbstractVector{<:Real},
     Gc::AbstractVector{<:Real}, Ninv::AbstractVector{<:Real}, dC::AbstractVector{<:Real},
     rs::AbstractVector{<:Real}, edges::AbstractVector{<:Real}, rate::Real,
@@ -235,7 +232,6 @@ function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
     @threads for j in 1:n_dt
         t, dt = tolegendre(zs[j], TN)
         ts[j] = t
-        dts[j] = dt
         qs[j] = pt(t, TN)
         om[j] = wt[j] * dt
     end
@@ -347,7 +343,7 @@ function transition!(out::AbstractVector{<:Real}, x::AbstractVector{<:Real},
 end
 
 """
-    fusedsweep!(ys, ts, dts, qs, om, Phi, dgn, Gc, Ninv, dC, A, Jc, Jf, MJ, J1,
+    fusedsweep!(ys, ts, qs, om, Phi, dgn, Gc, Ninv, dC, A, Jf, MJ, J1,
                 zs, wt, rs, edges, mu, rho, npicard, n_dt, nrs, TN)
 
 One forward sweep in `r` over the Volterra form of the SMC' recursion, writing
@@ -358,16 +354,23 @@ truncating the Neumann series at `order`, so **all** orders are resolved. Each
 bin is one exponential-Euler step (stiff `-2*rate*t` term exact, `expm1` against
 small-argument cancellation, only non-negative terms added), closed by `npicard`
 Picard iterations because `M J` on the bin depends on `J` itself. `MJ` carries
-over from the previous bin as the seed.
+over from the previous bin as the seed; re-seeding it instead with a fresh
+`M*J_1` costs one extra apply per bin and is worse than spending that apply on
+another Picard iteration (§7.4 of the spec).
+
+The convolution part is rebuilt from the final `MJ` in the terminal loop rather
+than being reused from the last Picard iterate, which is free and cuts the
+error by 1.3x to 19x depending on `alpha` (§7.4).
 
 Unlike `prordn!` this is sequential in `r` and cannot be threaded over `nrs`.
+The node setup is under 0.1% of the runtime, so it is not threaded either.
 It does not write `res`: per-order diagnostics require `prordn!`.
 """
 function fusedsweep!(ys::AbstractVector{<:Real},
-    ts::AbstractVector{<:Real}, dts::AbstractVector{<:Real}, qs::AbstractVector{<:Real},
+    ts::AbstractVector{<:Real}, qs::AbstractVector{<:Real},
     om::AbstractVector{<:Real}, Phi::AbstractVector{<:Real}, dgn::AbstractVector{<:Real},
     Gc::AbstractVector{<:Real}, Ninv::AbstractVector{<:Real}, dC::AbstractVector{<:Real},
-    A::AbstractVector{<:Real}, Jc::AbstractVector{<:Real}, Jf::AbstractVector{<:Real},
+    A::AbstractVector{<:Real}, Jf::AbstractVector{<:Real},
     MJ::AbstractVector{<:Real}, J1::AbstractVector{<:Real},
     zs::AbstractVector{<:Real}, wt::AbstractVector{<:Real},
     rs::AbstractVector{<:Real}, edges::AbstractVector{<:Real}, mu::Real, rho::Real,
@@ -382,10 +385,9 @@ function fusedsweep!(ys::AbstractVector{<:Real},
     rate = mu + rho
     alpha = rho / rate
 
-    @threads for j in 1:n_dt
+    for j in 1:n_dt
         t, dt = tolegendre(zs[j], TN)
         ts[j] = t
-        dts[j] = dt
         qs[j] = pt(t, TN)
         om[j] = wt[j] * dt
     end
@@ -409,17 +411,20 @@ function fusedsweep!(ys::AbstractVector{<:Real},
         for _ in 1:npicard
             for j in 1:n_dt
                 t = ts[j]
-                Jc[j] = A[j] * exp(-2rate * (rs[i] - edges[i]) * t) +
+                Jf[j] = J1[j] + A[j] * exp(-2rate * (rs[i] - edges[i]) * t) +
                         alpha * MJ[j] * (- expm1(-2rate * wi * t)) / 2t
-                Jf[j] = J1[j] + Jc[j]
             end
             transition!(MJ, Jf, Phi, dgn, Gc, Ninv, dC, om, n_dt)
         end
         s = zero(T)
         for j in 1:n_dt
             t = ts[j]
+            # convolution part rebuilt from the MJ the last Picard apply
+            # produced, one iterate fresher than the Jf above
+            jc = A[j] * exp(-2rate * (rs[i] - edges[i]) * t) +
+                 alpha * MJ[j] * (- expm1(-2rate * wi * t)) / 2t
             # terminal t integral of the convolution part; 2t from p(r|t)
-            s += Jc[j] * 2 * t * om[j]
+            s += jc * 2 * t * om[j]
             # roll the accumulator from edges[i] to edges[i+1]
             A[j] = exp(-2rate * w * t) * A[j] +
                    alpha * MJ[j] * (- expm1(-2rate * w * t)) / 2t
@@ -446,7 +451,6 @@ function fusedsweep!(bag::IntegralArrays,
     fusedsweep!(
         get_tmp(bag.ys, T),
         get_tmp(bag.ts, T),
-        get_tmp(bag.dts, T),
         get_tmp(bag.qs, T),
         get_tmp(bag.om, T),
         get_tmp(bag.Phi, T),
@@ -455,7 +459,6 @@ function fusedsweep!(bag::IntegralArrays,
         get_tmp(bag.Ninv, T),
         get_tmp(bag.dC, T),
         get_tmp(bag.A, T),
-        get_tmp(bag.Jc, T),
         get_tmp(bag.Jf, T),
         get_tmp(bag.MJ, T),
         get_tmp(bag.J1, T),
