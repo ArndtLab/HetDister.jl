@@ -169,3 +169,59 @@ end
 
     @test_throws ArgumentError mldsmcp(rs, edges, mu, rho, TN; ndt = ndt, method = :bogus)
 end
+
+# max |z| over bins that would survive adapt_histogram's tail threshold
+function maxz(rs, edges, mu, rho, ndt, TN; reford = 200, tailthr = 10)
+    ref = orderref(rs, edges, mu, rho, ndt, TN, reford)
+    got = mldsmcp(rs, edges, mu, rho, TN; ndt = ndt, method = :fused)
+    keep = findall(ref .> tailthr)
+    @assert length(keep) > 100
+    maximum(abs.(got[keep] .- ref[keep]) ./ sqrt.(ref[keep]))
+end
+
+@testset "fused error is far below Poisson noise at the production binning" begin
+    TN = [3.0e9, 20000.0, 2500.0, 2000.0, 500.0, 10000.0]
+    mu = 1.25e-8
+    nbins = ndt = 800
+
+    # (rho/mu, hi, npicard chosen by the rule, measured max |z| in §7.3)
+    cases = [
+        (1.0, 30_000,     2, 5.4e-4),
+        (1.0, 10_000_000, 2, 1.9e-3),
+        (2.0, 10_000_000, 3, 2.2e-3),
+        (4.0, 30_000,     4, 1.5e-3),
+        (4.0, 10_000_000, 4, 6.4e-3),
+    ]
+    for (ratio, hi, np, measured) in cases
+        rho = mu * ratio
+        @test getnpicard(mu, rho) == np
+        edges, rs = prodgrid(nbins, hi)
+        z = maxz(rs, edges, mu, rho, ndt, TN)
+        @test z < 1e-2                # the design target
+        @test z < 3 * measured        # guards against silent regression
+    end
+end
+
+@testset "fused sweep survives an unadapted hi" begin
+    # 5e7 is adapt_histogram's default hi before adaptation: bins up to
+    # 1.1e6 bp wide, far wider than anything real data produces.
+    TN = [3.0e9, 20000.0, 2500.0, 2000.0, 500.0, 10000.0]
+    mu = 1.25e-8
+    rho = 4mu
+    edges, rs = prodgrid(800, 50_000_000)
+    ys = mldsmcp(rs, edges, mu, rho, TN; ndt = 800, method = :fused)
+    @test all(isfinite, ys)
+    @test all(ys .> 0)
+    @test maxz(rs, edges, mu, rho, 800, TN) < 1e-2
+end
+
+@testset "fused error does not depend on the demography" begin
+    mu = 1.25e-8
+    rho = 4mu
+    edges, rs = prodgrid(800, 10_000_000)
+    for TN in ([3.0e9, 10000.0],
+               [3.0e9, 20000.0, 2500.0, 2000.0, 500.0, 10000.0],
+               [3.0e9, 20000.0, 60000.0, 8000.0, 8000.0, 16000.0, 1600.0, 2000.0, 400.0, 10000.0])
+        @test maxz(rs, edges, mu, rho, 800, TN) < 1e-2
+    end
+end
