@@ -300,9 +300,23 @@ its discretisation error stays below `1e-2` Poisson sigma at the production
 binning (`nbins = ndt = 800`, whole-genome `L`).  Plays for `fusedsweep!` the
 role `getorder` plays for the order loop.
 
+This bound is only calibrated for `alpha = rho / (mu + rho) <= 0.8`, i.e.
+`rho / mu <= 4`, the largest realistic recombination-to-mutation ratio. Above
+that range the returned count is NOT sufficient to keep the error below `1e-2`
+Poisson sigma; callers operating there must pass an explicit, larger
+`npicard`. For context, the order-loop path is no better in that regime:
+`getorder` (src/utils.jl) saturates at its cap of 50 there, so this is a
+shared validity bound of the model code, not a regression introduced by the
+fused path.
+
 Calibrated in §7.3 of `notes/smcp-integrals-notes.tex` against an order-400
 reference, over `hi` from `3e4` to `5e7`; the worst case at each branch is
-`1.9e-3` (alpha 0.5), `2.2e-3` (alpha 0.667) and `8.5e-3` (alpha 0.8).
+`1.9e-3` (alpha 0.5), `2.2e-3` (alpha 0.667) and `8.5e-3` (alpha 0.8), the
+worst case in the calibrated range. The branch thresholds were also verified
+at their upper edges: alpha 0.55 (np = 2) gives `4.0e-3` and alpha 0.72
+(np = 3) gives `6.2e-3`. Beyond alpha 0.8 the error grows quickly: alpha 0.90
+with np = 4 gives `7.7e-2`, alpha 0.95 gives `5.0e-1`, and reaching `1e-2` at
+alpha 0.90 needs `np ~ 10`.
 """
 function getnpicard(mu::Real, rho::Real)
     alpha = rho / (mu + rho)

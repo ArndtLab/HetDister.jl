@@ -246,8 +246,10 @@ end
     @test all(isfinite, g)
     @test any(!iszero, g)
 
-    # central differences on the population-size entries (indices 2, 4, 6)
-    for k in (2, 4, 6)
+    # central differences on all live TN entries (indices 2-6): population
+    # sizes (2, 4, 6) and epoch times (3, 5), the latter flowing through the
+    # epoch-boundary while loop in tolaguerre/tolegendre.
+    for k in 2:6
         h = 1e-3 * TN0[k]
         tp = copy(TN0); tp[k] += h
         tm = copy(TN0); tm[k] -= h

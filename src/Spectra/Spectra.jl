@@ -34,6 +34,7 @@ orders of the SMC' recursion, using `npicard` transition applies per bin
 (`npicard = 0` selects it with `getnpicard(mu, rho)`). With `method = :order`
 the Neumann series is truncated at `order` intermediate recombination events
 plus one, which is slower but produces the per-order `bag.res` columns.
+`order` only affects `method = :order`; it is ignored by the fused path.
 """
 function mldsmcp(rs, edges, mu, rho, TN; order = 10, ndt = 800,
 	method::Symbol = :fused, npicard::Int = 0
