@@ -109,3 +109,29 @@ end
         @test all(ys .> 0)
     end
 end
+
+@testset "bag wrapper matches the raw fusedsweep!" begin
+    TN = [3.0e9, 20000.0, 2500.0, 2000.0, 500.0, 10000.0]
+    mu = 1.25e-8
+    ndt = 200
+    edges, rs = prodgrid(200, 30_000)
+
+    for ratio in (1.0, 4.0)
+        rho = mu * ratio
+        np = getnpicard(mu, rho)
+
+        bag = IntegralArrays(10, ndt, length(rs), Val{length(TN)})
+        fusedsweep!(bag, rs, edges, mu, rho, TN)
+        auto = copy(get_tmp(bag.ys, eltype(TN)))
+        @test auto ≈ rawfused(rs, edges, mu, rho, ndt, TN, np)
+
+        # an explicit npicard overrides the rule
+        fusedsweep!(bag, rs, edges, mu, rho, TN; npicard = 6)
+        @test get_tmp(bag.ys, eltype(TN)) ≈ rawfused(rs, edges, mu, rho, ndt, TN, 6)
+
+        # calling twice with the same arguments must give the same answer:
+        # A and MJ have to be reset, not carried between calls
+        fusedsweep!(bag, rs, edges, mu, rho, TN)
+        @test get_tmp(bag.ys, eltype(TN)) ≈ auto
+    end
+end

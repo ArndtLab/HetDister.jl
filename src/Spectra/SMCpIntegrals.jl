@@ -167,6 +167,11 @@ struct IntegralArrays{T}
     Gc::DiffCache{Vector{T},Vector{T}}
     Ninv::DiffCache{Vector{T},Vector{T}}
     dC::DiffCache{Vector{T},Vector{T}}
+    A::DiffCache{Vector{T},Vector{T}}
+    Jc::DiffCache{Vector{T},Vector{T}}
+    Jf::DiffCache{Vector{T},Vector{T}}
+    MJ::DiffCache{Vector{T},Vector{T}}
+    J1::DiffCache{Vector{T},Vector{T}}
 end
 
 function IntegralArrays(order::Int, ndt::Int, nrs::Int, chunk, levels = 1)
@@ -181,7 +186,8 @@ function IntegralArrays(order::Int, ndt::Int, nrs::Int, chunk, levels = 1)
         t,
         w,
         dcvec(), dcvec(), dcvec(), dcvec(), dcvec(),
-        dcvec(), dcvec(), dcvec(), dcvec()
+        dcvec(), dcvec(), dcvec(), dcvec(),
+        dcvec(), dcvec(), dcvec(), dcvec(), dcvec()
     )
 end
 
@@ -407,6 +413,40 @@ function fusedsweep!(ys::AbstractVector{<:Real},
         # order 1 comes from the analytic firstorder, as in prordn!'s res[:,1]
         ys[i] = (firstorder(rs[i], rate, TN) + s) * scale
     end
+    return nothing
+end
+
+"""
+    fusedsweep!(bag::IntegralArrays, rs, edges, mu, rho, TN; npicard = 0)
+
+Bag wrapper for the fused sweep. `npicard = 0` selects the iteration count with
+`getnpicard(mu, rho)`; pass a positive value to override it. Writes `bag.ys`
+and leaves `bag.res` untouched.
+"""
+function fusedsweep!(bag::IntegralArrays,
+    rs::AbstractVector{<:Real}, edges::AbstractVector{<:Real}, mu::Real, rho::Real,
+    TN::AbstractVector{<:Real}; npicard::Int = 0
+)
+    T = eltype(TN)
+    np = npicard > 0 ? npicard : getnpicard(mu, rho)
+    fusedsweep!(
+        get_tmp(bag.ys, T),
+        get_tmp(bag.ts, T),
+        get_tmp(bag.dts, T),
+        get_tmp(bag.qs, T),
+        get_tmp(bag.om, T),
+        get_tmp(bag.Phi, T),
+        get_tmp(bag.dgn, T),
+        get_tmp(bag.Gc, T),
+        get_tmp(bag.Ninv, T),
+        get_tmp(bag.dC, T),
+        get_tmp(bag.A, T),
+        get_tmp(bag.Jc, T),
+        get_tmp(bag.Jf, T),
+        get_tmp(bag.MJ, T),
+        get_tmp(bag.J1, T),
+        bag.zs, bag.wt, rs, edges, mu, rho, np, bag.n_dt, bag.nrs, TN
+    )
     return nothing
 end
 
