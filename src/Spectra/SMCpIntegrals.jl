@@ -8,7 +8,7 @@ using PreallocationTools
 using ..CoalescentBase
 
 export IntegralArrays, prordn!, fusedsweep!, getnpicard,
-    firstorder, firstorderint, TimeGrid, timenodes!, ndt
+    firstorder, firstorderint, TimeGrid, ndt
 
 
 function firstorder(r::Real, rate::Real, TN::AbstractVector{<:Real})
@@ -190,17 +190,6 @@ Total number of quadrature nodes: `(K-1)` finite panels of `m` plus the `mtail`
 tail nodes.
 """
 ndt(g::TimeGrid) = (g.K - 1) * g.m + g.mtail
-
-"""
-    timenodes!(nodes, g::TimeGrid, TN::AbstractVector)
-
-Build panel time nodes from reference quadrature and epoch times.
-(Placeholder stub for Task 1; full implementation in later task.)
-"""
-function timenodes!(nodes::Vector, g::TimeGrid, TN::AbstractVector)
-    # Placeholder for future implementation
-    return nothing
-end
 
 struct IntegralArrays{T}
     order::Int

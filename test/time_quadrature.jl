@@ -5,7 +5,7 @@ using HistogramBinnings
 using StatsBase
 
 const SMCp = IBSpector.Spectra.SMCpIntegrals
-using IBSpector.Spectra.SMCpIntegrals: TimeGrid, ndt, timenodes!
+using IBSpector.Spectra.SMCpIntegrals: TimeGrid, ndt
 
 @testset "TimeGrid" begin
     g = TimeGrid(5; m = 48, mtail = 32)
