@@ -25,9 +25,11 @@ that are midpoints of log bins defined by `edges`,
 given the mutation rate `mu`, recombination rate `rho`, and
 population size history `TN`.
 
-`ndt` is the number of Legendre nodes for the time integration; the rule of
-thumb is `ndt == length(rs)`, and `800` is where the discretisation error drops
-below Poisson noise for a whole genome.
+`ndt` is accepted but currently UNUSED: the time integration now runs on a
+`TimeGrid(length(TN) ÷ 2)` built with its default node counts (panels pinned to
+the epoch boundaries), not a flat Legendre map sized by `ndt`. The keyword is
+kept only so existing callers do not break; threading a real per-panel node
+count through here is Task 5's job.
 
 With `method = :fused` (the default) a single forward sweep in `r` resolves all
 orders of the SMC' recursion, using `npicard` transition applies per bin
@@ -39,7 +41,7 @@ plus one, which is slower but produces the per-order `bag.res` columns.
 function mldsmcp(rs, edges, mu, rho, TN; order = 10, ndt = 800,
 	method::Symbol = :fused, npicard::Int = 0
 )
-	bag = IntegralArrays(order, ndt, length(rs), Val{length(TN)})
+	bag = IntegralArrays(order, TimeGrid(length(TN) ÷ 2), length(rs), Val{length(TN)})
 	mldsmcp!(bag, 1:order, rs, edges, mu, rho, TN; method, npicard)
 	return get_tmp(bag.ys, eltype(TN))
 end

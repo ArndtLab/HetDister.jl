@@ -144,7 +144,7 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
     hi_edge = h_obs.edges[1].edges[end]
     hth = CustomEdgeVector(; lo = lo_edge, hi = hi_edge - 1, nbins = th_discr)
     rs_th = midpoints(hth)
-    bag = IntegralArrays(fop.order, fop.ndt, length(rs_th), Val{2epochs})
+    bag = IntegralArrays(fop.order, Spectra.SMCpIntegrals.TimeGrid(epochs), length(rs_th), Val{2epochs})
 
     chain = []
     corrections = []
@@ -247,7 +247,7 @@ end
 
 function correctestimate!(fop::FitOptions, fit::FitResult, h::Histogram)
     rs = midpoints(h.edges[1])
-    bag = IntegralArrays(fop.order, fop.ndt, length(rs), Val{length(fit.para)}, 3)
+    bag = IntegralArrays(fop.order, Spectra.SMCpIntegrals.TimeGrid(length(fit.para) ÷ 2), length(rs), Val{length(fit.para)}, 3)
 
     setnepochs!(fop, length(fit.para)÷2)
     setinit!(fop, fit.para)

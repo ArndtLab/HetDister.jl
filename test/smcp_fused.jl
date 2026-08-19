@@ -142,37 +142,47 @@ end
     ndt = 200
     edges, rs = prodgrid(200, 30_000)
 
+    # mldsmcp now builds its own TimeGrid(length(TN)÷2) internally (with default
+    # m/mtail) regardless of the `ndt` kwarg, which is accepted-but-unused for
+    # now (Task 5 threads real per-panel counts through). Match that grid here
+    # so the direct bag calls stay comparable.
+    grid = TimeGrid(length(TN) ÷ 2)
+
     # :fused agrees with the direct bag call
     got = mldsmcp(rs, edges, mu, rho, TN; ndt = ndt, method = :fused)
-    bag = IntegralArrays(10, ndt, length(rs), Val{length(TN)})
+    bag = IntegralArrays(10, grid, length(rs), Val{length(TN)})
     fusedsweep!(bag, rs, edges, mu, rho, TN)
     @test got ≈ get_tmp(bag.ys, eltype(TN))
 
     # :order reproduces the pre-change behaviour bit for bit
     order = 12
     want = mldsmcp(rs, edges, mu, rho, TN; order = order, ndt = ndt, method = :order)
-    bag2 = IntegralArrays(order, ndt, length(rs), Val{length(TN)})
+    bag2 = IntegralArrays(order, grid, length(rs), Val{length(TN)})
     SMCp.prordn!(bag2, rs, edges, mu + rho, TN)
     mldsmcp!(bag2, 1:order, mu, rho, TN)
     @test want == get_tmp(bag2.ys, eltype(TN))
 
     # the mutating entry defaults to the fused sweep, like mldsmcp
-    bag3 = IntegralArrays(order, ndt, length(rs), Val{length(TN)})
+    bag3 = IntegralArrays(order, grid, length(rs), Val{length(TN)})
     mldsmcp!(bag3, 1:order, rs, edges, mu, rho, TN)
     @test get_tmp(bag3.ys, eltype(TN)) == got
 
     # res is poisoned on the fused path so stale per-order reads are loud
-    bag4 = IntegralArrays(order, ndt, length(rs), Val{length(TN)})
+    bag4 = IntegralArrays(order, grid, length(rs), Val{length(TN)})
     mldsmcp!(bag4, 1:order, rs, edges, mu, rho, TN; method = :fused)
     @test all(isnan, get_tmp(bag4.res, eltype(TN)))
 
     @test_throws ArgumentError mldsmcp(rs, edges, mu, rho, TN; ndt = ndt, method = :bogus)
 end
 
-# max |z| over bins that would survive adapt_histogram's tail threshold
-function maxz(rs, edges, mu, rho, ndt, TN; reford = 200, tailthr = 10)
-    ref = orderref(rs, edges, mu, rho, ndt, TN, reford)
-    got = mldsmcp(rs, edges, mu, rho, TN; ndt = ndt, method = :fused)
+# max |z| over bins that would survive adapt_histogram's tail threshold.
+# mldsmcp ignores its `ndt` kwarg now (it always uses TimeGrid(length(TN)÷2)
+# with default node counts), so the order-loop reference is built on the same
+# default grid for an apples-to-apples comparison.
+function maxz(rs, edges, mu, rho, TN; reford = 200, tailthr = 10)
+    grid = TimeGrid(length(TN) ÷ 2)
+    ref = orderref(rs, edges, mu, rho, grid, TN, reford)
+    got = mldsmcp(rs, edges, mu, rho, TN; method = :fused)
     keep = findall(ref .> tailthr)
     @assert length(keep) > 100
     maximum(abs.(got[keep] .- ref[keep]) ./ sqrt.(ref[keep]))
@@ -181,7 +191,7 @@ end
 @testset "fused error is far below Poisson noise at the production binning" begin
     TN = [3.0e9, 20000.0, 2500.0, 2000.0, 500.0, 10000.0]
     mu = 1.25e-8
-    nbins = ndt = 800
+    nbins = 800
 
     # (rho/mu, hi, npicard chosen by the rule, measured max |z| in §7.3)
     cases = [
@@ -195,7 +205,7 @@ end
         rho = mu * ratio
         @test getnpicard(mu, rho) == np
         edges, rs = prodgrid(nbins, hi)
-        z = maxz(rs, edges, mu, rho, ndt, TN)
+        z = maxz(rs, edges, mu, rho, TN)
         @test z < 1e-2                # the design target
         @test z < 3 * measured        # guards against silent regression
     end
@@ -208,10 +218,10 @@ end
     mu = 1.25e-8
     rho = 4mu
     edges, rs = prodgrid(800, 50_000_000)
-    ys = mldsmcp(rs, edges, mu, rho, TN; ndt = 800, method = :fused)
+    ys = mldsmcp(rs, edges, mu, rho, TN; method = :fused)
     @test all(isfinite, ys)
     @test all(ys .> 0)
-    @test maxz(rs, edges, mu, rho, 800, TN) < 1e-2
+    @test maxz(rs, edges, mu, rho, TN) < 1e-2
 end
 
 @testset "fused error does not depend on the demography" begin
@@ -221,7 +231,7 @@ end
     for TN in ([3.0e9, 10000.0],
                [3.0e9, 20000.0, 2500.0, 2000.0, 500.0, 10000.0],
                [3.0e9, 20000.0, 60000.0, 8000.0, 8000.0, 16000.0, 1600.0, 2000.0, 400.0, 10000.0])
-        @test maxz(rs, edges, mu, rho, 800, TN) < 1e-2
+        @test maxz(rs, edges, mu, rho, TN) < 1e-2
     end
 end
 

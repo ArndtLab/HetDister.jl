@@ -160,7 +160,7 @@ function fit_model_epochs!(
 
     # run the optimization
     rs = midpoints(edges)
-    dc = IntegralArrays(options.order, options.ndt, length(rs), Val{length(options.init)}, 3)
+    dc = IntegralArrays(options.order, Spectra.SMCpIntegrals.TimeGrid(options.nepochs), length(rs), Val{length(options.init)}, 3)
     model = modelsmcp!(dc, rs, edges, counts, options.mu, options.rho, options.locut, options.prior)
     logger = ConsoleLogger(stdout, Logging.Error)
     mle = with_logger(logger) do
@@ -294,7 +294,7 @@ function sample_model_epochs!(
     
     init_ = InitFromParams(VarNamedTuple(; TN = options.init))
     rs = midpoints(edges)
-    dc = IntegralArrays(options.order, options.ndt, length(rs), Val{length(options.init)}, 3)
+    dc = IntegralArrays(options.order, Spectra.SMCpIntegrals.TimeGrid(options.nepochs), length(rs), Val{length(options.init)}, 3)
     model = modelsmcp!(dc, rs, edges, counts, options.mu, options.rho, options.locut, options.prior)
     chain = with_logger(logger) do
         sample(model, MH(covar), nsamples; initial_params=init_)
