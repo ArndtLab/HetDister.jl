@@ -14,6 +14,7 @@ include("Aqua.jl")
 include("spectra.jl")
 include("smcp_semiseparable.jl")
 include("smcp_fused.jl")
+include("time_quadrature.jl")
 
 const LOCAL = false
 

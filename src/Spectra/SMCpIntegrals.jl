@@ -8,7 +8,7 @@ using PreallocationTools
 using ..CoalescentBase
 
 export IntegralArrays, prordn!, fusedsweep!, getnpicard,
-    firstorder, firstorderint
+    firstorder, firstorderint, TimeGrid, timenodes!, ndt
 
 
 function firstorder(r::Real, rate::Real, TN::AbstractVector{<:Real})
@@ -146,6 +146,60 @@ function tolegendre(z, TN::AbstractVector{<:Real})
     dy = 2/(z-1)^2
     t, dt = tolaguerre(y, TN)
     return t, dt * dy
+end
+
+"""
+    TimeGrid(K; m = 48, mtail = 48)
+
+Reference nodes and weights for the panel-wise time quadrature of a `K`-epoch
+history. Holds nothing that depends on `TN`: the panels are built from the epoch
+times at evaluation time by [`timenodes!`](@ref).
+
+Epochs `1 … K-1` each get an `m`-point Gauss-Legendre panel over `[T_k, T_{k+1}]`;
+the final epoch `[T_K, ∞)` gets an `mtail`-point Gauss-Laguerre panel in the
+coalescent variable `u = (t - T_K) / 2N_K`, where the coalescent factor is exactly
+`exp(-C(T_K)/2) * exp(-u)`.
+
+The Laguerre weights are stored **folded**, `w_i * exp(u_i)`, so they cancel the
+`exp(-u)` that the integrand already carries through `pt`. They stay well
+conditioned because the growth of `exp(u_i)` is offset by the decay of `w_i`.
+"""
+struct TimeGrid
+    m::Int
+    mtail::Int
+    K::Int
+    zleg::Vector{Float64}
+    wleg::Vector{Float64}
+    ulag::Vector{Float64}
+    wlag::Vector{Float64}
+end
+
+function TimeGrid(K::Int; m::Int = 48, mtail::Int = 48)
+    @assert K >= 1 "need at least one epoch"
+    @assert m >= 2 "need at least 2 nodes per panel"
+    @assert mtail >= 2 "need at least 2 nodes in the tail panel"
+    z, w = gausslegendre(m)
+    u, wl = gausslaguerre(mtail)
+    return TimeGrid(m, mtail, K, z, w, u, wl .* exp.(u))
+end
+
+"""
+    ndt(g::TimeGrid)
+
+Total number of quadrature nodes: `(K-1)` finite panels of `m` plus the `mtail`
+tail nodes.
+"""
+ndt(g::TimeGrid) = (g.K - 1) * g.m + g.mtail
+
+"""
+    timenodes!(nodes, g::TimeGrid, TN::AbstractVector)
+
+Build panel time nodes from reference quadrature and epoch times.
+(Placeholder stub for Task 1; full implementation in later task.)
+"""
+function timenodes!(nodes::Vector, g::TimeGrid, TN::AbstractVector)
+    # Placeholder for future implementation
+    return nothing
 end
 
 struct IntegralArrays{T}
