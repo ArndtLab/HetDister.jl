@@ -8,7 +8,7 @@ using PreallocationTools
 using ..CoalescentBase
 
 export IntegralArrays, prordn!, fusedsweep!, getnpicard,
-    firstorder, firstorderint, TimeGrid, ndt
+    firstorder, firstorderint, TimeGrid, timenodes!, ndt
 
 
 function firstorder(r::Real, rate::Real, TN::AbstractVector{<:Real})
@@ -190,6 +190,48 @@ Total number of quadrature nodes: `(K-1)` finite panels of `m` plus the `mtail`
 tail nodes.
 """
 ndt(g::TimeGrid) = (g.K - 1) * g.m + g.mtail
+
+"""
+    timenodes!(ts, om, g::TimeGrid, TN)
+
+Fill `ts` with the quadrature nodes and `om` with their weights for the history
+`TN`. Panels are pinned to the epoch boundaries, so each node is an **affine**
+function of the epoch parameters: nodes move smoothly with `TN` and a node can
+never migrate from one epoch to another. `ts` comes out ascending, as
+`sepkernel!` and `transition!` require.
+
+The tail weights carry the folded `exp(u_i)` from [`TimeGrid`](@ref); it cancels
+against the `exp(-C(t)/2)` the integrand supplies through `pt`.
+"""
+function timenodes!(ts::AbstractVector{<:Real}, om::AbstractVector{<:Real},
+    g::TimeGrid, TN::AbstractVector{<:Real}
+)
+    K = length(TN) ÷ 2
+    @assert K == g.K "grid built for $(g.K) epochs, got $K"
+    @assert length(ts) == ndt(g) "ts has length $(length(ts)), expected $(ndt(g))"
+    @assert length(om) == ndt(g) "om has length $(length(om)), expected $(ndt(g))"
+
+    j = 0
+    @inbounds for k in 1:K-1
+        a = getts(TN, k)
+        b = getts(TN, k + 1)
+        c = (a + b) / 2
+        h = (b - a) / 2
+        for i in 1:g.m
+            j += 1
+            ts[j] = c + h * g.zleg[i]
+            om[j] = g.wleg[i] * h
+        end
+    end
+    TK = getts(TN, K)
+    twoNK = 2 * getns(TN, K)
+    @inbounds for i in 1:g.mtail
+        j += 1
+        ts[j] = TK + twoNK * g.ulag[i]
+        om[j] = g.wlag[i] * twoNK
+    end
+    return nothing
+end
 
 struct IntegralArrays{T}
     order::Int
