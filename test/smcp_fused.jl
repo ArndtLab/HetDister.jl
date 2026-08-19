@@ -1,7 +1,8 @@
 using IBSpector
 using IBSpector.Spectra
 using IBSpector.Spectra.PreallocationTools
-using IBSpector.Spectra.SMCpIntegrals: getnpicard, fusedsweep!, transition!, sepkernel!
+using IBSpector.Spectra.SMCpIntegrals: getnpicard, fusedsweep!, transition!, sepkernel!,
+    TimeGrid, ndt, timenodes!
 using HistogramBinnings
 using StatsBase
 using Test
@@ -18,10 +19,10 @@ end
 
 # Order-loop reference, summed over orders with alpha and scaled exactly as
 # mldsmcp! scales it. `order` must be large enough to be converged.
-function orderref(rs, edges, mu, rho, ndt, TN, order)
+function orderref(rs, edges, mu, rho, grid, TN, order)
     rate = mu + rho
     alpha = rho / rate
-    bag = IntegralArrays(order, ndt, length(rs), Val{length(TN)})
+    bag = IntegralArrays(order, grid, length(rs), Val{length(TN)})
     SMCp.prordn!(bag, rs, edges, rate, TN)
     res = get_tmp(bag.res, eltype(TN))
     scale = 2 * mu * TN[1] * (mu / rate)
@@ -29,14 +30,14 @@ function orderref(rs, edges, mu, rho, ndt, TN, order)
 end
 
 # Raw fusedsweep! with freshly allocated Float64 buffers.
-function rawfused(rs, edges, mu, rho, ndt, TN, npicard)
+function rawfused(rs, edges, mu, rho, grid, TN, npicard)
     nrs = length(rs)
-    zs, wt = SMCp.gausslegendre(ndt)
-    v() = zeros(Float64, ndt)
+    n = SMCp.ndt(grid)
+    v() = zeros(Float64, n)
     ys = zeros(Float64, nrs)
     fusedsweep!(ys, v(), v(), v(), v(), v(), v(), v(), v(),
                 v(), v(), v(), v(),
-                zs, wt, rs, edges, mu, rho, npicard, ndt, nrs, TN)
+                grid, rs, edges, mu, rho, npicard, n, nrs, TN)
     ys
 end
 
@@ -51,38 +52,34 @@ end
 
 @testset "transition! vector method == matrix method" begin
     TN = [3.0e9, 20000.0, 2500.0, 2000.0, 500.0, 10000.0]
-    ndt = 120
-    zs, wt = SMCp.gausslegendre(ndt)
-    ts = zeros(ndt); om = zeros(ndt)
-    for j in 1:ndt
-        t, dt = SMCp.tolegendre(zs[j], TN)
-        ts[j] = t
-        om[j] = wt[j] * dt
-    end
-    Phi = zeros(ndt); dgn = zeros(ndt); Gc = zeros(ndt)
-    Ninv = zeros(ndt); dC = zeros(ndt)
+    grid = TimeGrid(length(TN) ÷ 2; m = 32, mtail = 32)
+    n = ndt(grid)
+    ts = zeros(n); om = zeros(n)
+    timenodes!(ts, om, grid, TN)
+    Phi = zeros(n); dgn = zeros(n); Gc = zeros(n)
+    Ninv = zeros(n); dC = zeros(n)
     sepkernel!(Phi, dgn, Gc, Ninv, dC, ts, TN)
 
-    x = abs.(randn(ndt)) .* 1e-6
-    out = zeros(ndt)
-    transition!(out, x, Phi, dgn, Gc, Ninv, dC, om, ndt)
+    x = abs.(randn(n)) .* 1e-6
+    out = zeros(n)
+    transition!(out, x, Phi, dgn, Gc, Ninv, dC, om, n)
 
-    jprt = reshape(copy(x), ndt, 1)
-    temp = zeros(1, ndt)
-    transition!(temp, jprt, 1, Phi, dgn, Gc, Ninv, dC, om, ndt)
+    jprt = reshape(copy(x), n, 1)
+    temp = zeros(1, n)
+    transition!(temp, jprt, 1, Phi, dgn, Gc, Ninv, dC, om, n)
     @test out ≈ vec(temp[1, :])
 end
 
 @testset "fused sweep converges to the order loop under Picard" begin
     TN = [3.0e9, 20000.0, 2500.0, 2000.0, 500.0, 10000.0]
     mu = 1.25e-8
-    ndt = 200
+    grid = TimeGrid(length(TN) ÷ 2; m = 100, mtail = 100)
     edges, rs = prodgrid(200, 30_000)
 
     for ratio in (1.0, 4.0)
         rho = mu * ratio
-        ref = orderref(rs, edges, mu, rho, ndt, TN, 200)
-        errs = [maximum(abs.(rawfused(rs, edges, mu, rho, ndt, TN, np) .- ref) ./ abs.(ref))
+        ref = orderref(rs, edges, mu, rho, grid, TN, 200)
+        errs = [maximum(abs.(rawfused(rs, edges, mu, rho, grid, TN, np) .- ref) ./ abs.(ref))
                 for np in 1:6]
         @test all(isfinite, errs)
         # Picard contracts by about 1/3 at first, then tails off as the error
@@ -103,9 +100,10 @@ end
     TN = [3.0e9, 20000.0, 2500.0, 2000.0, 500.0, 10000.0]
     mu = 1.25e-8
     rho = 4mu
+    grid = TimeGrid(length(TN) ÷ 2; m = 64, mtail = 64)
     edges, rs = prodgrid(200, 30_000)
     for np in 1:4
-        ys = rawfused(rs, edges, mu, rho, 200, TN, np)
+        ys = rawfused(rs, edges, mu, rho, grid, TN, np)
         @test all(isfinite, ys)
         @test all(ys .> 0)
     end
@@ -114,21 +112,21 @@ end
 @testset "bag wrapper matches the raw fusedsweep!" begin
     TN = [3.0e9, 20000.0, 2500.0, 2000.0, 500.0, 10000.0]
     mu = 1.25e-8
-    ndt = 200
+    grid = TimeGrid(length(TN) ÷ 2; m = 64, mtail = 64)
     edges, rs = prodgrid(200, 30_000)
 
     for ratio in (1.0, 4.0)
         rho = mu * ratio
         np = getnpicard(mu, rho)
 
-        bag = IntegralArrays(10, ndt, length(rs), Val{length(TN)})
+        bag = IntegralArrays(10, grid, length(rs), Val{length(TN)})
         fusedsweep!(bag, rs, edges, mu, rho, TN)
         auto = copy(get_tmp(bag.ys, eltype(TN)))
-        @test auto ≈ rawfused(rs, edges, mu, rho, ndt, TN, np)
+        @test auto ≈ rawfused(rs, edges, mu, rho, grid, TN, np)
 
         # an explicit npicard overrides the rule
         fusedsweep!(bag, rs, edges, mu, rho, TN; npicard = 6)
-        @test get_tmp(bag.ys, eltype(TN)) ≈ rawfused(rs, edges, mu, rho, ndt, TN, 6)
+        @test get_tmp(bag.ys, eltype(TN)) ≈ rawfused(rs, edges, mu, rho, grid, TN, 6)
 
         # calling twice with the same arguments must give the same answer:
         # A and MJ have to be reset, not carried between calls
@@ -230,13 +228,13 @@ end
 @testset "fused sweep is ForwardDiff-differentiable" begin
     mu = 1.25e-8
     rho = 4mu
-    ndt = 60
     edges = collect(1.0:1.0:40.0)
     rs = collect(1.0:1.0:39.0)
     TN0 = [3.0e9, 20000.0, 2500.0, 2000.0, 500.0, 10000.0]
+    grid = TimeGrid(length(TN0) ÷ 2; m = 32, mtail = 32)
 
     function total(TN)
-        bag = IntegralArrays(4, ndt, length(rs), Val{length(TN)})
+        bag = IntegralArrays(4, grid, length(rs), Val{length(TN)})
         fusedsweep!(bag, rs, edges, mu, rho, TN)
         sum(get_tmp(bag.ys, eltype(TN)))
     end
@@ -248,7 +246,7 @@ end
 
     # central differences on all live TN entries (indices 2-6): population
     # sizes (2, 4, 6) and epoch times (3, 5), the latter flowing through the
-    # epoch-boundary while loop in tolaguerre/tolegendre.
+    # epoch-pinned panel construction in timenodes!.
     for k in 2:6
         h = 1e-3 * TN0[k]
         tp = copy(TN0); tp[k] += h

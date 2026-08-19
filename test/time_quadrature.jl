@@ -3,6 +3,7 @@ using IBSpector.Spectra
 using Test
 using HistogramBinnings
 using StatsBase
+using IBSpector.Spectra.PreallocationTools
 
 const SMCp = IBSpector.Spectra.SMCpIntegrals
 using IBSpector.Spectra.SMCpIntegrals: TimeGrid, timenodes!, ndt
@@ -99,4 +100,31 @@ end
             end
         end
     end
+end
+
+@testset "sweep runs on the panel grid and matches the order loop" begin
+    mu, rho = 1.0e-8, 2.0e-8
+    TN = TNSTALL
+    K = length(TN) ÷ 2
+    ev = IBSpector.CustomEdgeVector(lo = 1, hi = 30_000, nbins = 120)
+    edges = collect(Float64, ev); rs = collect(Float64, midpoints(ev))
+    grid = TimeGrid(K; m = 64, mtail = 64)
+
+    bagf = IntegralArrays(60, grid, length(rs), Val{length(TN)})
+    bago = IntegralArrays(60, grid, length(rs), Val{length(TN)})
+    @test bagf.n_dt == ndt(grid)
+
+    # npicard = 6 (the design-target rule for this alpha) only contracts the
+    # error to ~3e-3 by the fixed exponential-Euler bin count here; np = 25
+    # drives the Picard iteration itself to ~2.5e-8, well under the 1e-6
+    # bound, confirming fused and order-loop converge to the same integral.
+    SMCp.fusedsweep!(bagf, rs, edges, mu, rho, TN; npicard = 25)
+    yf = copy(get_tmp(bagf.ys, Float64))
+    SMCp.prordn!(bago, rs, edges, mu + rho, TN)
+    Spectra.mldsmcp!(bago, 1:60, mu, rho, TN)
+    yo = copy(get_tmp(bago.ys, Float64))
+
+    @test all(isfinite, yf) && all(yf .> 0)
+    # converged Picard vs converged order loop: same integral, same grid
+    @test maximum(abs.(yf .- yo) ./ yo) < 1e-6
 end

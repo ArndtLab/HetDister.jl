@@ -127,27 +127,6 @@ function transition!(temp::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
     return nothing
 end
 
-function tolaguerre(z, TN::AbstractVector{<:Real})
-    epoch = 1
-    ce = 0
-    ae = 1/2getns(TN, epoch)
-    t = (z - ce)/ae
-    while epoch < length(TN)÷2 && t > getts(TN, epoch+1)
-        epoch += 1
-        ce += (getts(TN, epoch) - getts(TN, epoch-1)) * ae
-        ae = 1/2getns(TN, epoch)
-        t = (z - ce + ae*getts(TN, epoch))/ae
-    end
-    return t, 1/ae
-end
-
-function tolegendre(z, TN::AbstractVector{<:Real})
-    y = -1 - 2/(z-1)
-    dy = 2/(z-1)^2
-    t, dt = tolaguerre(y, TN)
-    return t, dt * dy
-end
-
 """
     TimeGrid(K; m = 48, mtail = 48)
 
@@ -241,8 +220,7 @@ struct IntegralArrays{T}
     res::DiffCache{Matrix{T},Vector{T}}
     jprt::DiffCache{Matrix{T},Vector{T}}
     temp::DiffCache{Matrix{T},Vector{T}}
-    zs::Vector{Float64}
-    wt::Vector{Float64}
+    grid::TimeGrid
     ts::DiffCache{Vector{T},Vector{T}}
     qs::DiffCache{Vector{T},Vector{T}}
     om::DiffCache{Vector{T},Vector{T}}
@@ -257,17 +235,16 @@ struct IntegralArrays{T}
     J1::DiffCache{Vector{T},Vector{T}}
 end
 
-function IntegralArrays(order::Int, ndt::Int, nrs::Int, chunk, levels = 1)
-    t, w = gausslegendre(ndt)
-    dcvec() = DiffCache(zeros(Float64, ndt), chunk; levels)
+function IntegralArrays(order::Int, grid::TimeGrid, nrs::Int, chunk, levels = 1)
+    n = ndt(grid)
+    dcvec() = DiffCache(zeros(Float64, n), chunk; levels)
     IntegralArrays(
-        order, ndt, nrs,
+        order, n, nrs,
         DiffCache(zeros(Float64, nrs), chunk; levels),
         DiffCache(zeros(Float64, nrs, order), chunk; levels),
-        DiffCache(zeros(Float64, ndt, nrs), chunk; levels),
-        DiffCache(zeros(Float64, nrs, ndt), chunk; levels),
-        t,
-        w,
+        DiffCache(zeros(Float64, n, nrs), chunk; levels),
+        DiffCache(zeros(Float64, nrs, n), chunk; levels),
+        grid,
         dcvec(), dcvec(), dcvec(), dcvec(),
         dcvec(), dcvec(), dcvec(), dcvec(),
         dcvec(), dcvec(), dcvec(), dcvec()
@@ -283,8 +260,7 @@ function prordn!(bag::IntegralArrays,
         get_tmp(bag.res, T),
         get_tmp(bag.jprt, T),
         get_tmp(bag.temp, T),
-        bag.zs,
-        bag.wt,
+        bag.grid,
         get_tmp(bag.ts, T),
         get_tmp(bag.qs, T),
         get_tmp(bag.om, T),
@@ -300,7 +276,7 @@ end
 
 function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
     temp::AbstractMatrix{<:Real},
-    zs::AbstractVector{<:Real}, wt::AbstractVector{<:Real},
+    grid::TimeGrid,
     ts::AbstractVector{<:Real}, qs::AbstractVector{<:Real},
     om::AbstractVector{<:Real}, Phi::AbstractVector{<:Real}, dgn::AbstractVector{<:Real},
     Gc::AbstractVector{<:Real}, Ninv::AbstractVector{<:Real}, dC::AbstractVector{<:Real},
@@ -314,11 +290,9 @@ function prordn!(res::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
     jprt .= 0
     temp .= 0
 
+    timenodes!(ts, om, grid, TN)
     @threads for j in 1:n_dt
-        t, dt = tolegendre(zs[j], TN)
-        ts[j] = t
-        qs[j] = pt(t, TN)
-        om[j] = wt[j] * dt
+        qs[j] = pt(ts[j], TN)
     end
     sepkernel!(Phi, dgn, Gc, Ninv, dC, ts, TN)
     @threads for i in 1:nrs
@@ -429,7 +403,7 @@ end
 
 """
     fusedsweep!(ys, ts, qs, om, Phi, dgn, Gc, Ninv, dC, A, Jf, MJ, J1,
-                zs, wt, rs, edges, mu, rho, npicard, n_dt, nrs, TN)
+                grid, rs, edges, mu, rho, npicard, n_dt, nrs, TN)
 
 One forward sweep in `r` over the Volterra form of the SMC' recursion, writing
 the expected number of segments at `rs` into `ys`.
@@ -457,7 +431,7 @@ function fusedsweep!(ys::AbstractVector{<:Real},
     Gc::AbstractVector{<:Real}, Ninv::AbstractVector{<:Real}, dC::AbstractVector{<:Real},
     A::AbstractVector{<:Real}, Jf::AbstractVector{<:Real},
     MJ::AbstractVector{<:Real}, J1::AbstractVector{<:Real},
-    zs::AbstractVector{<:Real}, wt::AbstractVector{<:Real},
+    grid::TimeGrid,
     rs::AbstractVector{<:Real}, edges::AbstractVector{<:Real}, mu::Real, rho::Real,
     npicard::Int, n_dt::Int, nrs::Int,
     TN::AbstractVector{<:Real}
@@ -470,11 +444,9 @@ function fusedsweep!(ys::AbstractVector{<:Real},
     rate = mu + rho
     alpha = rho / rate
 
+    timenodes!(ts, om, grid, TN)
     for j in 1:n_dt
-        t, dt = tolegendre(zs[j], TN)
-        ts[j] = t
-        qs[j] = pt(t, TN)
-        om[j] = wt[j] * dt
+        qs[j] = pt(ts[j], TN)
     end
     sepkernel!(Phi, dgn, Gc, Ninv, dC, ts, TN)
 
@@ -547,7 +519,7 @@ function fusedsweep!(bag::IntegralArrays,
         get_tmp(bag.Jf, T),
         get_tmp(bag.MJ, T),
         get_tmp(bag.J1, T),
-        bag.zs, bag.wt, rs, edges, mu, rho, np, bag.n_dt, bag.nrs, TN
+        bag.grid, rs, edges, mu, rho, np, bag.n_dt, bag.nrs, TN
     )
     return nothing
 end
