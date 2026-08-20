@@ -135,13 +135,16 @@ history. Holds nothing that depends on `TN`: the panels are built from the epoch
 times at evaluation time by [`timenodes!`](@ref).
 
 Epochs `1 … K-1` each get an `m`-point Gauss-Legendre panel over `[T_k, T_{k+1}]`;
-the final epoch `[T_K, ∞)` gets an `mtail`-point Gauss-Laguerre panel in the
+the final epoch `[T_K, ∞)` gets an `mtail`-point algebraic-map panel in the
 coalescent variable `u = (t - T_K) / 2N_K`, where the coalescent factor is exactly
 `exp(-C(T_K)/2) * exp(-u)`.
 
-The Laguerre weights are stored **folded**, `w_i * exp(u_i)`, so they cancel the
-`exp(-u)` that the integrand already carries through `pt`. They stay well
-conditioned because the growth of `exp(u_i)` is offset by the decay of `w_i`.
+The tail nodes come from the algebraic map `u = (1+z)/(1-z)` applied to
+`mtail`-point Gauss-Legendre nodes `z` on `(-1,1)`, which is dense at both ends
+of `[0,∞)` and so resolves both the coalescent decay `exp(-u)` and the
+recombination decay at large `u` (unlike Gauss-Laguerre, whose nodes are spaced
+by the coalescent rate alone). The weights include the map's Jacobian
+`du/dz = 2/(1-z)^2` and are not folded against `exp(-u)`.
 """
 struct TimeGrid
     m::Int
@@ -149,17 +152,19 @@ struct TimeGrid
     K::Int
     zleg::Vector{Float64}
     wleg::Vector{Float64}
-    ulag::Vector{Float64}
-    wlag::Vector{Float64}
+    utail::Vector{Float64}
+    wtail::Vector{Float64}
 end
 
-function TimeGrid(K::Int; m::Int = 48, mtail::Int = 48)
+function TimeGrid(K::Int; m::Int = 64, mtail::Int = 384)
     @assert K >= 1 "need at least one epoch"
     @assert m >= 2 "need at least 2 nodes per panel"
     @assert mtail >= 2 "need at least 2 nodes in the tail panel"
     z, w = gausslegendre(m)
-    u, wl = gausslaguerre(mtail)
-    return TimeGrid(m, mtail, K, z, w, u, wl .* exp.(u))
+    zt, wt = gausslegendre(mtail)
+    u  = (1 .+ zt) ./ (1 .- zt)          # algebraic map (-1,1) -> [0,inf)
+    du = 2 ./ (1 .- zt) .^ 2             # du/dz
+    return TimeGrid(m, mtail, K, z, w, u, wt .* du)
 end
 
 """
@@ -179,8 +184,9 @@ function of the epoch parameters: nodes move smoothly with `TN` and a node can
 never migrate from one epoch to another. `ts` comes out ascending, as
 `sepkernel!` and `transition!` require.
 
-The tail weights carry the folded `exp(u_i)` from [`TimeGrid`](@ref); it cancels
-against the `exp(-C(t)/2)` the integrand supplies through `pt`.
+The tail nodes/weights come from the algebraic map stored in [`TimeGrid`](@ref);
+unlike the old folded Laguerre weights, they are not pre-multiplied by
+`exp(u_i)`.
 """
 function timenodes!(ts::AbstractVector{<:Real}, om::AbstractVector{<:Real},
     g::TimeGrid, TN::AbstractVector{<:Real}
@@ -206,8 +212,8 @@ function timenodes!(ts::AbstractVector{<:Real}, om::AbstractVector{<:Real},
     twoNK = 2 * getns(TN, K)
     @inbounds for i in 1:g.mtail
         j += 1
-        ts[j] = TK + twoNK * g.ulag[i]
-        om[j] = g.wlag[i] * twoNK
+        ts[j] = TK + twoNK * g.utail[i]
+        om[j] = g.wtail[i] * twoNK
     end
     return nothing
 end
