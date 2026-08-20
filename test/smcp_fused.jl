@@ -174,7 +174,7 @@ end
 end
 
 # max |z| over bins that would survive adapt_histogram's tail threshold.
-# mldsmcp ignores its `ndt` kwarg now (it always uses TimeGrid(length(TN)÷2)
+# mldsmcp has no `ndt` kwarg any more (it always uses TimeGrid(length(TN)÷2)
 # with default node counts), so the order-loop reference is built on the same
 # default grid for an apples-to-apples comparison.
 function maxz(rs, edges, mu, rho, TN; reford = 200, tailthr = 10)

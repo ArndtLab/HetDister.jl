@@ -46,7 +46,7 @@ const TNSTALL = [3.003e9, 12388.8, 28302.1, 6975.85, 6214.37,
     ts = zeros(n); om = zeros(n)
     timenodes!(ts, om, g, TN)
 
-    @test issorted(ts)
+    @test all(diff(ts) .> 0)
     @test all(ts .> 0)
     @test all(isfinite, ts) && all(isfinite, om)
 
@@ -90,16 +90,23 @@ end
         d = zeros(length(TN0)); d[idx] = TN0[idx]   # relative perturbation
         as = range(-1e-3, 1e-3, length = 51)
         T = zeros(length(as), n)
+        Om = zeros(length(as), n)
         ts = zeros(n); om = zeros(n)
         for (q, a) in enumerate(as)
             timenodes!(ts, om, g, TN0 .+ a .* d)
             T[q, :] .= ts
+            Om[q, :] .= om
         end
         for j in 1:n
             lo, hi = T[1, j], T[end, j]
             for q in 1:length(as)
                 lin = lo + (hi - lo) * (q - 1) / (length(as) - 1)
                 @test T[q, j] ≈ lin atol = 1e-9 * max(abs(lo), abs(hi)) + 1e-12
+            end
+            olo, ohi = Om[1, j], Om[end, j]
+            for q in 1:length(as)
+                lin = olo + (ohi - olo) * (q - 1) / (length(as) - 1)
+                @test Om[q, j] ≈ lin atol = 1e-9 * max(abs(olo), abs(ohi)) + 1e-12
             end
         end
     end
@@ -183,7 +190,7 @@ end
     end
     # Each doubling of m must gain at least an order of magnitude UNTIL the error
     # reaches the double-precision floor, after which no further gain is possible.
-    # Measured for this history: 4.8e-2, 1.7e-5, 6.8e-12 (floor). Asserting a
+    # Measured for this history: 1.27e-3, 1.5e-5, 6.8e-12 (floor). Asserting a
     # ratio without the floor guard is unsatisfiable — that was a defect in the
     # original plan, found during execution on 2026-08-20.
     FLOOR = 1e-10
@@ -256,4 +263,18 @@ end
         fd = (f(TN .+ h .* d) - f(TN .- h .* d)) / (2h)
         @test abs(fd - gd) < 1e-3 * abs(gd)
     end
+end
+
+@testset "timenodes! rejects a non-monotone TN" begin
+    g = TimeGrid(3; m = 8, mtail = 8)
+    n = ndt(g)
+    ts = zeros(n); om = zeros(n)
+
+    # zero-width panel: without the guard this silently gives min(om) == 0.0
+    @test_throws ArgumentError timenodes!(ts, om, g, [3e9, 1e4, 0.0, 2e4, 100.0, 3e4])
+    # descending panel: without the guard this silently gives min(om) == -1.217
+    @test_throws ArgumentError timenodes!(ts, om, g, [3e9, 1e4, -50.0, 2e4, 100.0, 3e4])
+    # a valid monotone TN does not throw
+    timenodes!(ts, om, g, [3e9, 1e4, 50.0, 2e4, 100.0, 3e4])
+    @test all(diff(ts) .> 0)
 end

@@ -56,8 +56,9 @@ Compute the residuals between the observed and expected weights.
   plus one.
 - `mpanel::Int=0`: Gauss-Legendre nodes per epoch panel in the time quadrature
   used when `naive` is false. When zero, the `TimeGrid` default is used.
-- `mtail::Int=0`: Gauss-Laguerre nodes on the final semi-infinite panel used
-  when `naive` is false. When zero, the `TimeGrid` default is used.
+- `mtail::Int=0`: Gauss-Legendre nodes under the algebraic map on the final
+  semi-infinite panel used when `naive` is false. When zero, the `TimeGrid`
+  default is used.
 """
 function compute_residuals(h::Histogram, mu::Real, rho::Real, TN::Vector;
     naive=true, order=10, mpanel=0, mtail=0

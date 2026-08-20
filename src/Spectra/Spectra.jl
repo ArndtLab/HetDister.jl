@@ -27,8 +27,8 @@ population size history `TN`.
 
 The time integration runs on a `TimeGrid(length(TN) ÷ 2)` (panels pinned to
 the epoch boundaries), with `mpanel` Gauss-Legendre nodes per epoch panel and
-`mtail` Gauss-Laguerre nodes on the final semi-infinite panel. When either is
-zero, the `TimeGrid` default is used.
+`mtail` Gauss-Legendre nodes under the algebraic map on the final
+semi-infinite panel. When either is zero, the `TimeGrid` default is used.
 
 With `method = :fused` (the default) a single forward sweep in `r` resolves all
 orders of the SMC' recursion, using `npicard` transition applies per bin

@@ -128,7 +128,7 @@ function transition!(temp::AbstractMatrix{<:Real}, jprt::AbstractMatrix{<:Real},
 end
 
 """
-    TimeGrid(K; m = 48, mtail = 48)
+    TimeGrid(K; m = 64, mtail = 384)
 
 Reference nodes and weights for the panel-wise time quadrature of a `K`-epoch
 history. Holds nothing that depends on `TN`: the panels are built from the epoch
@@ -200,6 +200,9 @@ function timenodes!(ts::AbstractVector{<:Real}, om::AbstractVector{<:Real},
     @inbounds for k in 1:K-1
         a = getts(TN, k)
         b = getts(TN, k + 1)
+        b > a || throw(ArgumentError(
+            "timenodes!: epoch $k has non-positive width: T_$k = $a, T_$(k+1) = $b"
+        ))
         c = (a + b) / 2
         h = (b - a) / 2
         for i in 1:g.m
@@ -209,7 +212,11 @@ function timenodes!(ts::AbstractVector{<:Real}, om::AbstractVector{<:Real},
         end
     end
     TK = getts(TN, K)
-    twoNK = 2 * getns(TN, K)
+    NK = getns(TN, K)
+    NK > 0 || throw(ArgumentError(
+        "timenodes!: tail population size N_$K must be strictly positive, got $NK"
+    ))
+    twoNK = 2 * NK
     @inbounds for i in 1:g.mtail
         j += 1
         ts[j] = TK + twoNK * g.utail[i]
@@ -358,7 +365,7 @@ end
 
 Number of Picard iterations (`M`-applies) per bin the fused sweep needs so that
 its discretisation error stays below `1e-2` Poisson sigma at the production
-binning (`nbins = ndt = 800`, whole-genome `L`).  Plays for `fusedsweep!` the
+binning (`nbins = 800`, whole-genome `L`).  Plays for `fusedsweep!` the
 role `getorder` plays for the order loop.
 
 This bound is only calibrated for `alpha = rho / (mu + rho) <= 0.8`, i.e.

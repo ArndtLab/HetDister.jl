@@ -268,8 +268,8 @@ recombination rate `rho` per base pair per generation.
   is set automatically.
 - `mpanel::Int=0`: Gauss-Legendre nodes per epoch panel in the time quadrature.
   When zero, the `TimeGrid` default is used.
-- `mtail::Int=0`: Gauss-Laguerre nodes on the final semi-infinite panel.
-  When zero, the `TimeGrid` default is used.
+- `mtail::Int=0`: Gauss-Legendre nodes under the algebraic map on the final
+  semi-infinite panel. When zero, the `TimeGrid` default is used.
 - `locut::Int=20`: index of the first histogram bin to consider in the fit.
 """
 function FitOptions(Ltot, nhet, mu, rho;
