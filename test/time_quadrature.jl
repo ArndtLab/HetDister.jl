@@ -228,7 +228,7 @@ end
     Random.seed!(3)
     d = zeros(length(TN))   # pre-declared so it survives the loop (soft-scope in a hard-scope testset)
     for trial in 1:3
-        d = normalize(randn(length(TN)) .* TN)
+        d = TN .* normalize(randn(length(TN)))
         # detrended residual must sit at the float floor at EVERY window size;
         # the old global map climbed like h (1e-8 at h=3e-7 -> 0.42 at h=1e-5)
         for h in (1e-3, 1e-4, 1e-5, 1e-6, 1e-7)
