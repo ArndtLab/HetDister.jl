@@ -4,6 +4,11 @@ using Test
 using HistogramBinnings
 using StatsBase
 using IBSpector.Spectra.PreallocationTools
+using ForwardDiff
+using LinearAlgebra
+using Random
+using Distributions
+using Statistics
 
 const SMCp = IBSpector.Spectra.SMCpIntegrals
 using IBSpector.Spectra.SMCpIntegrals: TimeGrid, timenodes!, ndt
@@ -192,4 +197,63 @@ end
     @test !hasproperty(fop, :ndt)   # renamed, so a stale `ndt = 800` cannot pass silently
     g = TimeGrid(fop.nepochs; m = fop.mpanel, mtail = fop.mtail)
     @test ndt(g) == (fop.nepochs - 1) * fop.mpanel + fop.mtail
+end
+
+@testset "likelihood is smooth along a line" begin
+    mu, rho = 1.0e-8, 2.0e-8
+    TN = TNSTALL
+    K = length(TN) ÷ 2
+    ev = IBSpector.CustomEdgeVector(lo = 1, hi = 3_000_000, nbins = 200)
+    edges = collect(Float64, ev); rs = collect(Float64, IBSpector.midpoints(ev))
+
+    # Poisson counts from the model itself, so the surface has a real optimum
+    Random.seed!(20260819)
+    grid = TimeGrid(K)
+    bag = IntegralArrays(60, grid, length(rs), Val{K * 2}, 3)
+    SMCp.fusedsweep!(bag, rs, edges, mu, rho, TN)
+    w0 = get_tmp(bag.ys, Float64) .* diff(edges)
+    counts = [rand(Poisson(max(w, 0.0))) for w in w0]
+
+    function f(v)
+        SMCp.fusedsweep!(bag, rs, edges, mu, rho, v)
+        w = get_tmp(bag.ys, eltype(v)) .* diff(edges)
+        s = zero(eltype(v))
+        for i in eachindex(counts)
+            (!(w[i] > 0) || isnan(w[i])) && continue
+            s += counts[i] * log(w[i]) - w[i]
+        end
+        s
+    end
+
+    Random.seed!(3)
+    d = zeros(length(TN))   # pre-declared so it survives the loop (soft-scope in a hard-scope testset)
+    for trial in 1:3
+        d = normalize(randn(length(TN)) .* TN)
+        # detrended residual must sit at the float floor at EVERY window size;
+        # the old global map climbed like h (1e-8 at h=3e-7 -> 0.42 at h=1e-5)
+        for h in (1e-3, 1e-4, 1e-5, 1e-6, 1e-7)
+            n = 41
+            ss = collect(range(-h, h, length = n))
+            fs = [f(TN .+ a .* d) for a in ss]
+            A = hcat(ones(n), ss, ss .^ 2, ss .^ 3)
+            resid = maximum(abs, fs .- A * (A \ fs))
+            @test resid < 1e-6 * max(1.0, maximum(abs, fs))
+        end
+    end
+
+    # (a) derivative-jump ratio: was 5.85e5 with the old map, must be O(1)
+    n = 241; hw = 1e-4
+    as = collect(range(-hw, hw, length = n))
+    ps = [f(TN .+ a .* d) for a in as]
+    slope = [(ps[i+1] - ps[i]) / (as[i+1] - as[i]) for i in 1:n-1]
+    d2 = [abs(slope[i+1] - slope[i]) for i in 1:n-2]
+    @test maximum(d2) < 50 * median(d2)
+
+    # (b) central FD must agree with AD at EVERY h, not only below 1e-7
+    g = ForwardDiff.gradient(f, TN)
+    gd = dot(g, d)
+    for h in (1e-3, 1e-4, 1e-5, 1e-6, 1e-7)
+        fd = (f(TN .+ h .* d) - f(TN .- h .* d)) / (2h)
+        @test abs(fd - gd) < 1e-3 * abs(gd)
+    end
 end
