@@ -139,24 +139,22 @@ end
     TN = [3.0e9, 20000.0, 2500.0, 2000.0, 500.0, 10000.0]
     mu = 1.25e-8
     rho = 4mu
-    ndt = 200
     edges, rs = prodgrid(200, 30_000)
 
-    # mldsmcp now builds its own TimeGrid(length(TN)÷2) internally (with default
-    # m/mtail) regardless of the `ndt` kwarg, which is accepted-but-unused for
-    # now (Task 5 threads real per-panel counts through). Match that grid here
-    # so the direct bag calls stay comparable.
+    # mldsmcp builds its own TimeGrid(length(TN)÷2) internally with default
+    # m/mtail when mpanel/mtail are left at zero. Match that grid here so the
+    # direct bag calls stay comparable.
     grid = TimeGrid(length(TN) ÷ 2)
 
     # :fused agrees with the direct bag call
-    got = mldsmcp(rs, edges, mu, rho, TN; ndt = ndt, method = :fused)
+    got = mldsmcp(rs, edges, mu, rho, TN; method = :fused)
     bag = IntegralArrays(10, grid, length(rs), Val{length(TN)})
     fusedsweep!(bag, rs, edges, mu, rho, TN)
     @test got ≈ get_tmp(bag.ys, eltype(TN))
 
     # :order reproduces the pre-change behaviour bit for bit
     order = 12
-    want = mldsmcp(rs, edges, mu, rho, TN; order = order, ndt = ndt, method = :order)
+    want = mldsmcp(rs, edges, mu, rho, TN; order = order, method = :order)
     bag2 = IntegralArrays(order, grid, length(rs), Val{length(TN)})
     SMCp.prordn!(bag2, rs, edges, mu + rho, TN)
     mldsmcp!(bag2, 1:order, mu, rho, TN)
@@ -172,7 +170,7 @@ end
     mldsmcp!(bag4, 1:order, rs, edges, mu, rho, TN; method = :fused)
     @test all(isnan, get_tmp(bag4.res, eltype(TN)))
 
-    @test_throws ArgumentError mldsmcp(rs, edges, mu, rho, TN; ndt = ndt, method = :bogus)
+    @test_throws ArgumentError mldsmcp(rs, edges, mu, rho, TN; method = :bogus)
 end
 
 # max |z| over bins that would survive adapt_histogram's tail threshold.

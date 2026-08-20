@@ -41,7 +41,9 @@ Return a named tuple which contains the fields:
 - `fop::FitOptions = FitOptions(sum(segments), mu, rho)`: the fit options, see [`FitOptions`](@ref).
 - `lo::Int=1`: The lowest segment length to be considered in the histogram
 - `hi::Int=50_000_000`: The highest segment length to be considered in the histogram
-- `nbins::Int=fop.ndt`: The number of bins to use in the histogram
+- `nbins::Int=800`: The number of bins to use in the histogram. This is a
+  histogram discretisation count, unrelated to the quadrature node counts
+  in `fop`.
 - `iters::Int=20`: The number of iterations to perform after warmup. It might converge earlier.
   Warmup iterations are proportional to the `rho`/`mu` ratio.
 - `reltol::Float64=1e-2`: The relative tolerance to use for convergence,
@@ -50,12 +52,13 @@ Return a named tuple which contains the fields:
 - `relchange::Float64=1e-4`: The relative change in parameters to use for convergence.
   This is the maximum relative change in parameters between consecutive iterations.
   The convergence condition test this or `reltol`.
-- `th_discr::Int=fop.ndt`: number of discrete points for numerical integration when
- computing the expected weights. Default is set automatically.
+- `th_discr::Int=800`: number of discrete points for the fine histogram over which
+ the expected weights are computed. This is a histogram discretisation count,
+ unrelated to the quadrature node counts in `fop`.
 """
 function demoinfer(segments::AbstractVector{<:Integer}, epochrange::AbstractRange{<:Integer}, mu::Float64, rho::Float64;
     fop::FitOptions = FitOptions(sum(segments), length(segments), mu, rho),
-    lo::Int = 1, hi::Int = 50_000_000, nbins::Int = fop.ndt,
+    lo::Int = 1, hi::Int = 50_000_000, nbins::Int = 800,
     kwargs...
 )
     h = adapt_histogram(segments; lo, hi, nbins)
@@ -126,7 +129,7 @@ end
 
 function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
     iters::Int = 20, reltol::Float64 = 1e-2, relchange::Float64=1e-4,
-    th_discr::Int = fop_.ndt
+    th_discr::Int = 800
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
     @assert !isempty(h_obs.weights) "histogram is empty"
     @assert epochs > 0 "epochrange has to be strictly positive"
@@ -144,7 +147,9 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
     hi_edge = h_obs.edges[1].edges[end]
     hth = CustomEdgeVector(; lo = lo_edge, hi = hi_edge - 1, nbins = th_discr)
     rs_th = midpoints(hth)
-    bag = IntegralArrays(fop.order, Spectra.SMCpIntegrals.TimeGrid(epochs), length(rs_th), Val{2epochs})
+    bag = IntegralArrays(fop.order,
+                         Spectra.SMCpIntegrals.TimeGrid(epochs; m = fop.mpanel, mtail = fop.mtail),
+                         length(rs_th), Val{2epochs})
 
     chain = []
     corrections = []
@@ -247,7 +252,9 @@ end
 
 function correctestimate!(fop::FitOptions, fit::FitResult, h::Histogram)
     rs = midpoints(h.edges[1])
-    bag = IntegralArrays(fop.order, Spectra.SMCpIntegrals.TimeGrid(length(fit.para) ÷ 2), length(rs), Val{length(fit.para)}, 3)
+    bag = IntegralArrays(fop.order,
+                         Spectra.SMCpIntegrals.TimeGrid(length(fit.para) ÷ 2; m = fop.mpanel, mtail = fop.mtail),
+                         length(rs), Val{length(fit.para)}, 3)
 
     setnepochs!(fop, length(fit.para)÷2)
     setinit!(fop, fit.para)

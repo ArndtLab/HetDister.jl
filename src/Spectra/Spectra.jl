@@ -18,18 +18,17 @@ export
     sampleN, quantilesN
 
 """
-	mldsmcp(rs, edges, mu, rho, TN; order = 10, ndt = 800, method = :fused, npicard = 0)
+	mldsmcp(rs, edges, mu, rho, TN; order = 10, mpanel = 0, mtail = 0, method = :fused, npicard = 0)
 
 Compute the expected number of segments at representative lengths `rs`
 that are midpoints of log bins defined by `edges`,
 given the mutation rate `mu`, recombination rate `rho`, and
 population size history `TN`.
 
-`ndt` is accepted but currently UNUSED: the time integration now runs on a
-`TimeGrid(length(TN) ÷ 2)` built with its default node counts (panels pinned to
-the epoch boundaries), not a flat Legendre map sized by `ndt`. The keyword is
-kept only so existing callers do not break; threading a real per-panel node
-count through here is Task 5's job.
+The time integration runs on a `TimeGrid(length(TN) ÷ 2)` (panels pinned to
+the epoch boundaries), with `mpanel` Gauss-Legendre nodes per epoch panel and
+`mtail` Gauss-Laguerre nodes on the final semi-infinite panel. When either is
+zero, the `TimeGrid` default is used.
 
 With `method = :fused` (the default) a single forward sweep in `r` resolves all
 orders of the SMC' recursion, using `npicard` transition applies per bin
@@ -38,10 +37,14 @@ the Neumann series is truncated at `order` intermediate recombination events
 plus one, which is slower but produces the per-order `bag.res` columns.
 `order` only affects `method = :order`; it is ignored by the fused path.
 """
-function mldsmcp(rs, edges, mu, rho, TN; order = 10, ndt = 800,
+function mldsmcp(rs, edges, mu, rho, TN; order = 10, mpanel = 0, mtail = 0,
 	method::Symbol = :fused, npicard::Int = 0
 )
-	bag = IntegralArrays(order, TimeGrid(length(TN) ÷ 2), length(rs), Val{length(TN)})
+	K = length(TN) ÷ 2
+	g = iszero(mpanel) && iszero(mtail) ? TimeGrid(K) :
+	    TimeGrid(K; m = iszero(mpanel) ? TimeGrid(1).m : mpanel,
+	                mtail = iszero(mtail) ? TimeGrid(1).mtail : mtail)
+	bag = IntegralArrays(order, g, length(rs), Val{length(TN)})
 	mldsmcp!(bag, 1:order, rs, edges, mu, rho, TN; method, npicard)
 	return get_tmp(bag.ys, eltype(TN))
 end

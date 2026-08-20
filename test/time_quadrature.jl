@@ -185,3 +185,11 @@ end
     @test errs[2] < errs[1] / 10 || errs[2] < FLOOR
     @test errs[3] < errs[2] / 10 || errs[3] < FLOOR
 end
+
+@testset "FitOptions carries per-panel node counts" begin
+    fop = FitOptions(3.0e9, 100_000, 1.0e-8, 2.0e-8; nepochs = 5)
+    @test fop.mpanel > 0 && fop.mtail > 0
+    @test !hasproperty(fop, :ndt)   # renamed, so a stale `ndt = 800` cannot pass silently
+    g = TimeGrid(fop.nepochs; m = fop.mpanel, mtail = fop.mtail)
+    @test ndt(g) == (fop.nepochs - 1) * fop.mpanel + fop.mtail
+end

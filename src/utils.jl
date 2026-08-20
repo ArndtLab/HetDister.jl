@@ -230,7 +230,8 @@ mutable struct FitOptions
     maxnts::Int
     naive::Bool
     order::Int
-    ndt::Int
+    mpanel::Int
+    mtail::Int
     locut::Int
 end
 
@@ -265,8 +266,10 @@ recombination rate `rho` per base pair per generation.
 - `order::Int=0`: maximum number of higher order SMC' corrections to account for
   (i.e. number of intermediate recombination events plus one). When zero, it
   is set automatically.
-- `ndt::Int=0`: number of Legendre nodes to use for numerical integration.
-  When zero, it is set automatically.
+- `mpanel::Int=0`: Gauss-Legendre nodes per epoch panel in the time quadrature.
+  When zero, the `TimeGrid` default is used.
+- `mtail::Int=0`: Gauss-Laguerre nodes on the final semi-infinite panel.
+  When zero, the `TimeGrid` default is used.
 - `locut::Int=20`: index of the first histogram bin to consider in the fit.
 """
 function FitOptions(Ltot, nhet, mu, rho;
@@ -277,7 +280,8 @@ function FitOptions(Ltot, nhet, mu, rho;
     maxnts::Int = 10,
     naive::Bool = true,
     order::Int = 0,
-    ndt::Int = 0,
+    mpanel::Int = 0,
+    mtail::Int = 0,
     locut::Int = 20
 )
     N = 2nepochs
@@ -290,13 +294,9 @@ function FitOptions(Ltot, nhet, mu, rho;
     factors = [0.001, 0.01, 0.1, 0.5, 0.5, 0.9, 2] # mapreduce( i->fill(i, 10), vcat, [0.001, 0.01, 0.1, 0.5, 0.5, 0.9, 2] )
     delta = Deltas(factors, 0)
 
-    if iszero(ndt)
-        if nhet > 1e7
-            ndt = 1600
-        else
-            ndt = 800
-        end
-    end
+    dflt = Spectra.SMCpIntegrals.TimeGrid(1)
+    iszero(mpanel) && (mpanel = dflt.m)
+    iszero(mtail)  && (mtail  = dflt.mtail)
     cutoff = 2e-5 # fraction of segments contributing to higher orders
     if iszero(order)
         order = getorder(cutoff, mu, rho)
@@ -329,7 +329,8 @@ function FitOptions(Ltot, nhet, mu, rho;
         maxnts,
         naive,
         order,
-        ndt,
+        mpanel,
+        mtail,
         locut
     )
 end
