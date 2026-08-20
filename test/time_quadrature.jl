@@ -170,13 +170,18 @@ end
     TN = TNSTALL
     K = length(TN) ÷ 2
     rs = [1.0, 100.0, 10_000.0, 1_000_000.0]
-    errs = map((16, 32, 64)) do m
-        g = TimeGrid(K; m = m, mtail = m)
+    # hold the tail fixed and generous so this measures the FINITE panels only
+    errs = map((8, 16, 32)) do m
+        g = TimeGrid(K; m = m, mtail = 768)
         maximum(abs(firstorder_quad(r, mu, rho, g, TN) -
                     firstorder(r, rate, TN)) / firstorder(r, rate, TN) for r in rs)
     end
-    # each doubling of m must gain at least an order of magnitude; algebraic
-    # convergence (the old n^-1.5) could not do this
-    @test errs[2] < errs[1] / 10
-    @test errs[3] < errs[2] / 10
+    # Each doubling of m must gain at least an order of magnitude UNTIL the error
+    # reaches the double-precision floor, after which no further gain is possible.
+    # Measured for this history: 4.8e-2, 1.7e-5, 6.8e-12 (floor). Asserting a
+    # ratio without the floor guard is unsatisfiable — that was a defect in the
+    # original plan, found during execution on 2026-08-20.
+    FLOOR = 1e-10
+    @test errs[2] < errs[1] / 10 || errs[2] < FLOOR
+    @test errs[3] < errs[2] / 10 || errs[3] < FLOOR
 end
