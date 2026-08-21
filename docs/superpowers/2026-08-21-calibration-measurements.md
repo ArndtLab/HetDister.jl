@@ -132,3 +132,7 @@ over a widening range of r, and the two do not agree to O(1/th_discr).
 julia --project=. bench/calibrate_quadrature.jl          # ~13 min
 julia --project=. bench/calibrate_quadrature.jl --quick  # ~40 s
 ```
+
+The raw output of the run the tables above distil is kept verbatim in
+`2026-08-21-calibration-raw-output.log` (1260 scored arms), so every number here can
+be traced without re-running the sweep.
