@@ -576,6 +576,25 @@ The convolution part is rebuilt from the final `MJ` in the terminal loop rather
 than being reused from the last Picard iterate, which is free and cuts the
 error by 1.3x to 19x depending on `alpha` (§7.4).
 
+`edges` are histogram edges over integer segment lengths, and bin `i` holds the
+lengths `edges[i] … edges[i+1]-1`. The sweep integrates it over
+`[edges[i] - 1/2, edges[i+1] - 1/2)`, so those lengths sit at the bin's *centre*
+rather than at its lower edge: `rs[i]` is then interior to every bin, unit bins
+included, and one rule covers the whole grid. This is the convention
+`integral_ws` and `llike` already use (both pass `a = 0.5` to
+`laplacekingmanint`). The earlier split — mass at `edges[i]` over the full width
+for unit bins, density at the geometric midpoint over the partial width for wider
+ones — left the theory binning with no convergent limit, because the crossover
+between the two moved right as the grid was refined (§6 of the spec).
+
+The half-shift opens a slab `[0, edges[1] - 1/2)` below the first edge, which the
+Volterra integral of eq (10) runs over. It is seeded with one rectangular
+exponential-Euler step off the exact initial condition `J(0,t) = rate*q(t)`
+rather than dropped; the integrand is near flat there. That step also gives `MJ`
+a real seed for the first bin instead of zero. Seeding it is worth 0.20-0.53 sigma
+at 1e8 segments and the rectangular rule leaves <= 1.1e-3 sigma behind, some eighty
+times below the binning term, so the trapezoidal refinement is declined.
+
 The sweep is sequential in `r` by construction and is not threaded.
 """
 function fusedsweep!(ys::AbstractVector{<:Real},
@@ -607,22 +626,35 @@ function fusedsweep!(ys::AbstractVector{<:Real},
     fill!(A, zero(T))
     fill!(MJ, zero(T))
 
+    # slab [0, edges[1] - 1/2): one rectangular step off J(0,t) = rate*q(t),
+    # which is exact -- every Neumann order above the first vanishes at r = 0.
+    w0 = edges[1] - 1//2
+    if w0 > 0
+        for j in 1:n_dt
+            Jf[j] = rate * qs[j]
+        end
+        transition!(MJ, Jf, Phi, dgn, Gc, Ninv, EE, EB, om, grid)
+        for j in 1:n_dt
+            t = ts[j]
+            A[j] = alpha * MJ[j] * (- expm1(-2rate * w0 * t)) / 2t
+        end
+    end
+
     scale = 2 * mu * TN[1] * (mu / rate)
     @inbounds for i in 1:nrs
+        # Bin i holds the integer lengths edges[i] … edges[i+1]-1 and is
+        # integrated over [edges[i] - 1/2, edges[i+1] - 1/2). The shift leaves
+        # the width alone but puts rs[i] strictly inside every bin, unit bins
+        # included, so one rule covers the grid. See the docstring and §6.
         w = edges[i+1] - edges[i]
-        # Unit bins hold exactly the segments of length edges[i], so their
-        # representative point is the lower edge and the self-bin contribution
-        # spans the full width. Wider bins report a density at the geometric
-        # midpoint and use the partial width. The carried accumulator always
-        # advances by the full width. See §6 of the spec.
-        wi = w <= 1 ? w : rs[i] - edges[i]
+        wi = rs[i] - edges[i] + 1//2
         for j in 1:n_dt
             J1[j] = rate * exp(-2rate * rs[i] * ts[j]) * qs[j]
         end
         for _ in 1:npicard
             for j in 1:n_dt
                 t = ts[j]
-                Jf[j] = J1[j] + A[j] * exp(-2rate * (rs[i] - edges[i]) * t) +
+                Jf[j] = J1[j] + A[j] * exp(-2rate * wi * t) +
                         alpha * MJ[j] * (- expm1(-2rate * wi * t)) / 2t
             end
             transition!(MJ, Jf, Phi, dgn, Gc, Ninv, EE, EB, om, grid)
@@ -632,11 +664,11 @@ function fusedsweep!(ys::AbstractVector{<:Real},
             t = ts[j]
             # convolution part rebuilt from the MJ the last Picard apply
             # produced, one iterate fresher than the Jf above
-            jc = A[j] * exp(-2rate * (rs[i] - edges[i]) * t) +
+            jc = A[j] * exp(-2rate * wi * t) +
                  alpha * MJ[j] * (- expm1(-2rate * wi * t)) / 2t
             # terminal t integral of the convolution part; 2t from p(r|t)
             s += jc * 2 * t * om[j]
-            # roll the accumulator from edges[i] to edges[i+1]
+            # roll the accumulator across the full bin width
             A[j] = exp(-2rate * w * t) * A[j] +
                    alpha * MJ[j] * (- expm1(-2rate * w * t)) / 2t
         end

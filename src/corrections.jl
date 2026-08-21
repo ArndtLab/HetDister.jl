@@ -52,9 +52,14 @@ Return a named tuple which contains the fields:
 - `relchange::Float64=1e-4`: The relative change in parameters to use for convergence.
   This is the maximum relative change in parameters between consecutive iterations.
   The convergence condition test this or `reltol`.
-- `th_discr::Int=800`: number of discrete points for the fine histogram over which
+- `th_discr::Int=6400`: number of discrete points for the fine histogram over which
  the expected weights are computed. This is a histogram discretisation count,
- unrelated to the quadrature node counts in `fop`.
+ unrelated to the quadrature node counts in `fop`. Unlike those, it is genuinely
+ `ntot`-dependent: the binning converges as O(1/th_discr^2) while the Poisson
+ requirement tightens as sqrt(ntot), so the count needed grows as ntot^(1/4).
+ 6400 holds the worst-case binning error to 0.09 sigma at 1e8 segments and
+ 0.03 sigma at 1e7; drop to 3200 if the sweep cost matters and the dataset is
+ below ~1e7.
 """
 function demoinfer(segments::AbstractVector{<:Integer}, epochrange::AbstractRange{<:Integer}, mu::Float64, rho::Float64;
     fop::FitOptions = FitOptions(sum(segments), length(segments), mu, rho),
@@ -129,7 +134,7 @@ end
 
 function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
     iters::Int = 20, reltol::Float64 = 1e-2, relchange::Float64=1e-4,
-    th_discr::Int = 800
+    th_discr::Int = 6400
 ) where {T<:Integer,E<:Tuple{AbstractVector{<:Integer}}}
     @assert !isempty(h_obs.weights) "histogram is empty"
     @assert epochs > 0 "epochrange has to be strictly positive"
@@ -145,11 +150,6 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
     fop = deepcopy(fop_)
     lo_edge = h_obs.edges[1].edges[1]
     hi_edge = h_obs.edges[1].edges[end]
-    # th_discr = 800 is the flat spot, not an arbitrary choice: the theory
-    # binning has no convergent limit, because the unit-bin and wide-bin
-    # conventions of fusedsweep! disagree and their crossover moves right as
-    # th_discr grows. 1600 and beyond measure *worse*. See
-    # docs/superpowers/2026-08-21-calibration-measurements.md.
     hth = CustomEdgeVector(; lo = lo_edge, hi = hi_edge - 1, nbins = th_discr)
     rs_th = midpoints(hth)
     bag = IntegralArrays(timegrid(epochs;

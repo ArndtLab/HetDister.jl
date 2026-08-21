@@ -10,8 +10,9 @@ using ForwardDiff
 
 const SMCp = IBSpector.Spectra.SMCpIntegrals
 
-# Production binning: log-spaced edges pushed up to distinct integers, then the
-# geometric midpoint for wide bins and the lower edge for unit bins.
+# Production binning: log-spaced edges pushed up to distinct integers, with the
+# geometric midpoint of the integer lengths the bin holds as its representative
+# point. The sweep shifts these edges down by 1/2 internally.
 function prodgrid(nbins, hi)
     ev = IBSpector.CustomEdgeVector(lo = 1, hi = hi, nbins = nbins)
     collect(Float64, ev), collect(Float64, midpoints(ev))
@@ -37,18 +38,29 @@ function prordn_ref(rs, edges, rate, order, grid, TN)
         end
         res[i, 1] = SMCp.firstorder(rs[i], rate, TN)
     end
+    slab = zeros(n)
+    w0 = edges[1] - 1//2
     for o in 1:order-1
         for i in 1:nrs
             col .= view(jprt, :, i)
             transition!(out, col, Phi, dgn, Gc, Ninv, EE, EB, om, grid)
             temp[i, :] .= out
         end
+        # The sweep shifts the edges down by 1/2, which opens the slab
+        # [0, edges[1]-1/2). J_o(0,t) is rate*q(t) at o = 1 and vanishes above,
+        # so only the first order transition seeds the accumulator there.
+        if o == 1
+            col .= rate .* qs
+            transition!(slab, col, Phi, dgn, Gc, Ninv, EE, EB, om, grid)
+        else
+            fill!(slab, 0.0)
+        end
         for j in 1:n
-            acc = 0.0
+            acc = slab[j] * (-expm1(-2rate * w0 * ts[j])) / 2ts[j]
             for i in 1:nrs
                 w = edges[i+1] - edges[i]
-                s = acc * exp(-2rate * (rs[i] - edges[i]) * ts[j])
-                wi = w <= 1 ? w : rs[i] - edges[i]
+                wi = rs[i] - edges[i] + 1//2
+                s = acc * exp(-2rate * wi * ts[j])
                 s += temp[i, j] * (-expm1(-2rate * wi * ts[j])) / 2ts[j]
                 jprt[j, i] = s
                 frac = (-expm1(-2rate * w * ts[j])) / 2ts[j]
