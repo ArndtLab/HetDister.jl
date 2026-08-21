@@ -160,21 +160,38 @@ rather than duplicating it. `mldsmcp!` loses `method = :order`; `FitOptions` los
 Comparing whole fits between the fused and order paths is explicitly **not** a goal —
 only the objective function's analytic properties are being improved.
 
-## Expected result
+## Result
 
-From the prototype in the spike document, `TNFIT` at 800 bins, max Poisson σ against a
-common reference:
+At the shipped defaults, `TNFIT` at 800 bins, max Poisson sigma against a refined
+reference: **4.4e-6 / 1.6e-8 / 7.6e-11 at 616 / 744 / 930 nodes**, against
+**2.55 sigma at 640 nodes** before the correction and **0.42** for the old global
+map at 800.
 
-| nodes | plain | corrected |
-|---:|---:|---:|
-| 384 | 1.808 | 0.000016 |
-| 768 | 0.917 | 0.000000 |
-| 3072 | 0.239 | 0.000000 |
+Cost, one sweep at 800 bins, single thread, `TNFIT`:
 
-Converged at the smallest setting tried. The correction costs ~2x per node at
-`msub = 8` but needs ~7x fewer nodes, so against the setting the 2026-08-19 spec says is
-actually required (`m = 256, mtail = 1536`) it is ~3x faster **and** more accurate. The
-4x node penalty does not merely disappear; it inverts.
+| configuration | nodes | time |
+|---|---:|---:|
+| old global map (production) | 800 | 0.106 s |
+| pre-correction panels, m=64 mtail=384 | 640 | 0.082 s |
+| **corrected, shipped defaults** | **744** | **0.115 s** |
+| `m=256, mtail=1536` (what the 2026-08-19 spec said was required) | 2560 | 0.342 s |
+
+The corrected rule costs what production already cost (+8%) and is seven orders
+more accurate; it is 3.0x faster than the setting the previous spec required
+merely to *match* the old fidelity. The 4x node penalty does not merely
+disappear; it inverts.
+
+**End to end.** The stored production case (887 609 segments, K = 5, μ = 1e-8,
+ρ = 2e-8, 200 bins, `locut = 1`) on the SMC' (non-naive) path reaches
+
+```
+Status: success      |g| = 4.20e-08 <= 5.0e-08      2354 it, 807 s
+```
+
+against the documented pre-fix baseline of `failure (line search failed)` at
+`|g| = 1.91e+03`. Note that `FitOptions` caps `maxtime` at 60 s below
+`nhet = 1e7`, which this case is under; the run above raised it. That cap, not
+the quadrature, is what stops the default configuration short.
 
 ## Validation
 
