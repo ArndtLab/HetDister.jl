@@ -218,6 +218,13 @@ Recalibration should target a transition-level self-convergence criterion (~0.2 
 against a high-resolution reference), not `firstorder`. The defaults were deliberately
 NOT changed here because it is a cost/accuracy decision for the user.
 
+**Resolved (2026-08-21).** The 4x is not a node-budget problem at all: the transition
+kernel has a corner at `t' = t` that moves with the row, and every TN-independent node
+map is O(1/N) against it. See `../2026-08-20-time-quadrature-node-budget-spike.md` for
+the measurements and `2026-08-21-diagonal-corner-correction-design.md` for the fix —
+composite sub-panels plus a per-row partial integral of the local interpolant, which
+converges at the smallest setting tried and inverts the 4x penalty.
+
 ## Code structure
 
 New, in `SMCpIntegrals.jl`:
