@@ -219,6 +219,26 @@ end
 Default sub-panel counts, the single place they are set. `timegrid` substitutes
 them for any argument passed as zero, which is how `FitOptions` and `mldsmcp`
 spell "leave it at the default".
+
+Calibrated in `docs/superpowers/2026-08-21-calibration-measurements.md` over five
+histories (the fitted 5-epoch one, K=1, N at the 1e8 bound, T at the 10 floor, a
+near-empty epoch), `alpha = rho/(mu+rho)` in 0.5 … 0.8, `th_discr` in 400 … 1600
+and total counts in 1e5 … 1e8, scored in max Poisson sigma against a
+node-converged reference on the same theory grid. Worst case at these defaults:
+**6.7e-9 / 2.1e-8 / 6.7e-8 / 2.1e-6 sigma** at 1e5 / 1e6 / 1e7 / 1e8 segments,
+against **0.69 / 2.18 / 6.90 / 21.8** for the pre-panel production setting (the
+old global map at 800 nodes) — seven orders better, at 744 nodes for K=5 rather
+than 800.
+
+The counts deliberately do **not** depend on the total count. Poisson sigma
+grows as sqrt(Ntot) while the corrected rule converges geometrically in `msub`
+and `nfin`, so holding a 0.01-sigma target from the worst measured 2.1e-6 would
+allow ~2e16 segments. The dependence is real and vacuous; a selector returning
+the same triple everywhere would be a knob pretending to be a calibration.
+
+`nfin = 12` rather than the ~20% cheaper 8: the leaner setting still sits 30x
+inside a 0.01-sigma target, but misses the analytic `firstorder` anchor
+(1.1e-5 relative against the 1e-6 the test requires).
 """
 const TIMEGRID_DEFAULTS = (msub = 8, nfin = 12, ntail = 16)
 
@@ -444,6 +464,12 @@ end
 Number of Picard iterations (`M`-applies) per bin the fused sweep needs so that
 its discretisation error stays below `1e-2` Poisson sigma at the production
 binning (`nbins = 800`, whole-genome `L`).
+
+Re-checked on 2026-08-21 after the diagonal-corner correction and still binding
+nowhere: at `th_discr = 6400` the shipped grid scores 0.0038 sigma with
+`npicard = 3` and 0.0003 with `npicard = 6` against a `npicard = 16` reference.
+The production binning stays at 800, so the calibration below still applies as
+stated.
 
 This bound is only calibrated for `alpha = rho / (mu + rho) <= 0.8`, i.e.
 `rho / mu <= 4`, the largest realistic recombination-to-mutation ratio. Above

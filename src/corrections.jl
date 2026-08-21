@@ -145,6 +145,11 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
     fop = deepcopy(fop_)
     lo_edge = h_obs.edges[1].edges[1]
     hi_edge = h_obs.edges[1].edges[end]
+    # th_discr = 800 is the flat spot, not an arbitrary choice: the theory
+    # binning has no convergent limit, because the unit-bin and wide-bin
+    # conventions of fusedsweep! disagree and their crossover moves right as
+    # th_discr grows. 1600 and beyond measure *worse*. See
+    # docs/superpowers/2026-08-21-calibration-measurements.md.
     hth = CustomEdgeVector(; lo = lo_edge, hi = hi_edge - 1, nbins = th_discr)
     rs_th = midpoints(hth)
     bag = IntegralArrays(timegrid(epochs;

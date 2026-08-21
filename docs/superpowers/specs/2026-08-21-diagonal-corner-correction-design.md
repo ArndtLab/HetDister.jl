@@ -192,18 +192,37 @@ actually required (`m = 256, mtail = 1536`) it is ~3x faster **and** more accura
 7. End to end: the stored production case reaches `Status: success`, `|g| ≤ 5e-8`, at
    lower wall time than `m = 256, mtail = 1536`.
 
-## Calibration (separate phase)
+## Calibration (measured 2026-08-21)
 
-`th_discr` (the theory-side binning, `src/corrections.jl`, hard-coded 800) and
-`(msub, nfin, ntail)` are to be calibrated against **total histogram counts**, μ, ρ and
-the r-grid — never against `TN`, the same discipline as `getnpicard`.
+`th_discr` (the theory-side binning, `src/corrections.jl`) and
+`(msub, nfin, ntail)` were calibrated against total histogram counts, μ, ρ and
+the r-grid — never against `TN`, the same discipline as `getnpicard`. Full tables
+in `../2026-08-21-calibration-measurements.md`; instrument in
+`bench/calibrate_quadrature.jl`.
 
-The discretisation bias `δw_i` scales with the total count `Ntot`, so the Poisson score
-`δw_i/√w_i ∝ √Ntot`; holding σ fixed as counts grow needs relative error `∝ 1/√Ntot`.
-The corrected rule converges geometrically in `msub`/`nfin`, so node counts should grow
-only logarithmically in `Ntot`; the cost growth lands on `th_discr`, which is O(1/nbins)
-in the r direction.
+**Node budget.** At `(msub, nfin, ntail) = (8, 12, 16)` — 744 nodes at K=5 — the
+worst case over five histories, three α and three `th_discr` is
+6.7e-9 / 2.1e-8 / 6.7e-8 / 2.1e-6 sigma at 1e5 / 1e6 / 1e7 / 1e8 segments,
+against 0.69 / 2.18 / 6.90 / 21.8 for the pre-panel production setting (old
+global map, 800 nodes). Seven orders better at fewer nodes.
 
-Target: beat the old-global-map production accuracy (800 `CustomEdgeVector` bins over
-r ∈ [1, 5e6], 800 nodes) at a lower node count and lower wall time. `getnpicard`'s own
-calibration is pinned to `nbins = 800` and must be revalidated if `th_discr` moves.
+The counts deliberately carry **no** dependence on the total count. Poisson sigma
+grows as √Ntot while the corrected rule converges geometrically in `msub`/`nfin`,
+so a 0.01-sigma target would not bind until ~2e16 segments. The dependence is
+real and vacuous; a selector returning one triple everywhere would be a knob
+pretending to be a calibration.
+
+**Theory binning.** `th_discr` has **no convergent limit**: successive
+differences stop shrinking after 400→800 and then grow, on every history. Three
+measurements place this outside the quadrature — the pre-panel map reproduces
+the same numbers to three digits; the quadrature is converged at `th_discr` =
+6400 (0.0038 sigma against a 1884-node reference); and with `lo = 2000`, where
+no fine bin is one base pair wide, the binning converges cleanly at
+O(1/th_discr). The cause is the `w <= 1` branch of `fusedsweep!`: the unit-bin
+and wide-bin conventions disagree, and their crossover moves right as
+`th_discr` grows. `th_discr` stays at 800, the flat spot.
+
+**The r direction is now the ceiling.** At 1e8 segments the binning-induced
+spread is 2–8 sigma while the quadrature contributes 2e-6. Reconciling the two
+bin conventions is the next thing worth fixing, and it is a modelling question,
+not a quadrature one.
