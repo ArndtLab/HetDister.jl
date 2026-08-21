@@ -74,7 +74,7 @@ end
     mu::Float64, rho::Float64, locut::Int, TNdists::Vector{<:Distribution}
 )
     TN ~ product_distribution(TNdists)
-    mldsmcp!(dc, 1:dc.order, rs, edges, mu, rho, TN)
+    mldsmcp!(dc, rs, edges, mu, rho, TN)
     m = get_tmp(dc.ys, eltype(TN))
     m .*= diff(edges)
     for i in locut:length(counts)
@@ -94,7 +94,7 @@ function llsmcp!(dc::IntegralArrays, rs::AbstractVector{<:Real},
     edges::AbstractVector{<:Integer}, counts::AbstractVector{<:Integer},
     mu::Float64, rho::Float64, locut::Int, TN::AbstractVector{<:Real}
 )
-    mldsmcp!(dc, 1:dc.order, rs, edges, mu, rho, TN)
+    mldsmcp!(dc, rs, edges, mu, rho, TN)
     ws = get_tmp(dc.ys, eltype(TN)) .* diff(edges)
     return llsmcp(ws, counts, locut)
 end
@@ -160,8 +160,8 @@ function fit_model_epochs!(
 
     # run the optimization
     rs = midpoints(edges)
-    dc = IntegralArrays(options.order,
-                        Spectra.SMCpIntegrals.TimeGrid(options.nepochs; m = options.mpanel, mtail = options.mtail),
+    dc = IntegralArrays(timegrid(options.nepochs;
+                            msub = options.msub, nfin = options.nfin, ntail = options.ntail),
                         length(rs), Val{length(options.init)}, 3)
     model = modelsmcp!(dc, rs, edges, counts, options.mu, options.rho, options.locut, options.prior)
     logger = ConsoleLogger(stdout, Logging.Error)
@@ -296,8 +296,8 @@ function sample_model_epochs!(
     
     init_ = InitFromParams(VarNamedTuple(; TN = options.init))
     rs = midpoints(edges)
-    dc = IntegralArrays(options.order,
-                        Spectra.SMCpIntegrals.TimeGrid(options.nepochs; m = options.mpanel, mtail = options.mtail),
+    dc = IntegralArrays(timegrid(options.nepochs;
+                            msub = options.msub, nfin = options.nfin, ntail = options.ntail),
                         length(rs), Val{length(options.init)}, 3)
     model = modelsmcp!(dc, rs, edges, counts, options.mu, options.rho, options.locut, options.prior)
     chain = with_logger(logger) do

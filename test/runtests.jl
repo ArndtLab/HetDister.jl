@@ -78,7 +78,7 @@ end
 @testset "Test fit" begin
     h = Histogram([1,2,3,4])
     append!(h, [1,1,1,2,3,1,2])
-    fop = FitOptions(11, 7, 1.0, 1.0; order = 2, mpanel = 10, mtail = 10, locut = 1)
+    fop = FitOptions(11, 7, 1.0, 1.0; msub = 6, nfin = 4, ntail = 8, locut = 1)
     f = fit_model_epochs!(fop, h.edges[1], h.weights, Val(true))
     f = fit_model_epochs!(fop, h)
     @test f.converged
@@ -125,7 +125,7 @@ end
     ts = timesplitter(h, get_para(stat), fop; frame = 10)
     @test length(ts) >= 1
 
-    fop = FitOptions(sum(ibs_segments), length(ibs_segments), mu, rho; order=2, mpanel=10, mtail=10)
+    fop = FitOptions(sum(ibs_segments), length(ibs_segments), mu, rho; msub=6, nfin=4, ntail=8)
     res = demoinfer(ibs_segments, 1:length(TN)÷2, mu, rho;
         iters = 1, nbins=30
     )

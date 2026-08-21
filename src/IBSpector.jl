@@ -51,28 +51,19 @@ Compute the residuals between the observed and expected weights.
 - `naive::Bool=true`: if true the expected weights are computed
   using the closed form integral, otherwise using higher order transition
   probabilities from SMC' theory.
-- `order::Int=10`: maximum number of higher order corrections to use
-  when `naive` is false, i.e. number of intermediate recombination events
-  plus one.
-- `mpanel::Int=0`: Gauss-Legendre nodes per epoch panel in the time quadrature
-  used when `naive` is false. When zero, the `TimeGrid` default is used.
-- `mtail::Int=0`: Gauss-Legendre nodes under the algebraic map on the final
-  semi-infinite panel used when `naive` is false. When zero, the `TimeGrid`
-  default is used.
+- `msub::Int=0`, `nfin::Int=0`, `ntail::Int=0`: the time-quadrature sub-panel
+  counts used when `naive` is false. Each takes the `TimeGrid` default when zero.
 """
 function compute_residuals(h::Histogram, mu::Real, rho::Real, TN::Vector;
-    naive=true, order=10, mpanel=0, mtail=0
+    naive=true, msub=0, nfin=0, ntail=0
 )
     if naive
         w_th = integral_ws(h.edges[1], mu, TN)
     else
         rs = midpoints(h.edges[1])
         K = length(TN) ÷ 2
-        g = iszero(mpanel) && iszero(mtail) ? Spectra.SMCpIntegrals.TimeGrid(K) :
-            Spectra.SMCpIntegrals.TimeGrid(K; m = iszero(mpanel) ? Spectra.SMCpIntegrals.TimeGrid(1).m : mpanel,
-                                               mtail = iszero(mtail) ? Spectra.SMCpIntegrals.TimeGrid(1).mtail : mtail)
-        bag = IntegralArrays(order, g, length(rs), Val{length(TN)})
-        mldsmcp!(bag, 1:bag.order, rs, h.edges[1].edges, mu, rho, TN)
+        bag = IntegralArrays(timegrid(K; msub, nfin, ntail), length(rs), Val{length(TN)})
+        mldsmcp!(bag, rs, h.edges[1].edges, mu, rho, TN)
         w_th = get_tmp(bag.ys, eltype(TN)) .* diff(h.edges[1])
     end
     residuals = (h.weights .- w_th) ./ sqrt.(w_th)

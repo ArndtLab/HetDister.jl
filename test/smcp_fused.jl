@@ -2,7 +2,7 @@ using IBSpector
 using IBSpector.Spectra
 using IBSpector.Spectra.PreallocationTools
 using IBSpector.Spectra.SMCpIntegrals: getnpicard, fusedsweep!, transition!, sepkernel!,
-    TimeGrid, ndt, timenodes!
+    TimeGrid, ndt, npanels, timenodes!
 using HistogramBinnings
 using StatsBase
 using Test
@@ -17,14 +17,57 @@ function prodgrid(nbins, hi)
     collect(Float64, ev), collect(Float64, midpoints(ev))
 end
 
+# Order-loop reference. `prordn!` was removed from src — the fused sweep resolves
+# all orders — so this rebuilds the truncated Neumann series here, column by
+# column on the SAME vector `transition!` the fused path uses. It is a reference
+# for the r-recursion and the order truncation, not a second copy of the
+# quadrature. Unthreaded on purpose.
+function prordn_ref(rs, edges, rate, order, grid, TN)
+    n = ndt(grid); np = npanels(grid); nrs = length(rs)
+    ts = zeros(n); om = zeros(n); EE = zeros(n); EB = zeros(np)
+    timenodes!(ts, om, EE, EB, grid, TN)
+    Phi = zeros(n); dgn = zeros(n); Gc = zeros(n); Ninv = zeros(n)
+    sepkernel!(Phi, dgn, Gc, Ninv, ts, TN)
+    qs = [SMCp.pt(t, TN) for t in ts]
+    res = zeros(nrs, order); jprt = zeros(n, nrs); temp = zeros(nrs, n)
+    col = zeros(n); out = zeros(n)
+    for i in 1:nrs
+        for j in 1:n
+            jprt[j, i] = rate * exp(-2rate * rs[i] * ts[j]) * qs[j]
+        end
+        res[i, 1] = SMCp.firstorder(rs[i], rate, TN)
+    end
+    for o in 1:order-1
+        for i in 1:nrs
+            col .= view(jprt, :, i)
+            transition!(out, col, Phi, dgn, Gc, Ninv, EE, EB, om, grid)
+            temp[i, :] .= out
+        end
+        for j in 1:n
+            acc = 0.0
+            for i in 1:nrs
+                w = edges[i+1] - edges[i]
+                s = acc * exp(-2rate * (rs[i] - edges[i]) * ts[j])
+                wi = w <= 1 ? w : rs[i] - edges[i]
+                s += temp[i, j] * (-expm1(-2rate * wi * ts[j])) / 2ts[j]
+                jprt[j, i] = s
+                frac = (-expm1(-2rate * w * ts[j])) / 2ts[j]
+                acc = exp(-2rate * w * ts[j]) * acc + temp[i, j] * frac
+            end
+        end
+        for i in 1:nrs
+            res[i, o+1] = sum(jprt[j, i] * 2 * ts[j] * om[j] for j in 1:n)
+        end
+    end
+    res
+end
+
 # Order-loop reference, summed over orders with alpha and scaled exactly as
-# mldsmcp! scales it. `order` must be large enough to be converged.
+# mldsmcp scales it. `order` must be large enough to be converged.
 function orderref(rs, edges, mu, rho, grid, TN, order)
     rate = mu + rho
     alpha = rho / rate
-    bag = IntegralArrays(order, grid, length(rs), Val{length(TN)})
-    SMCp.prordn!(bag, rs, edges, rate, TN)
-    res = get_tmp(bag.res, eltype(TN))
+    res = prordn_ref(rs, edges, rate, order, grid, TN)
     scale = 2 * mu * TN[1] * (mu / rate)
     [sum(res[i, o] * alpha^(o - 1) for o in 1:order) * scale for i in eachindex(rs)]
 end
@@ -32,11 +75,11 @@ end
 # Raw fusedsweep! with freshly allocated Float64 buffers.
 function rawfused(rs, edges, mu, rho, grid, TN, npicard)
     nrs = length(rs)
-    n = SMCp.ndt(grid)
+    n = ndt(grid)
     v() = zeros(Float64, n)
     ys = zeros(Float64, nrs)
-    fusedsweep!(ys, v(), v(), v(), v(), v(), v(), v(), v(),
-                v(), v(), v(), v(),
+    fusedsweep!(ys, v(), v(), v(), v(), zeros(Float64, npanels(grid)),
+                v(), v(), v(), v(), v(), v(), v(), v(),
                 grid, rs, edges, mu, rho, npicard, n, nrs, TN)
     ys
 end
@@ -50,30 +93,10 @@ end
     @test getnpicard(mu, 0.0)    == 2     # alpha = 0, degenerate but legal
 end
 
-@testset "transition! vector method == matrix method" begin
-    TN = [3.0e9, 20000.0, 2500.0, 2000.0, 500.0, 10000.0]
-    grid = TimeGrid(length(TN) ÷ 2; m = 32, mtail = 32)
-    n = ndt(grid)
-    ts = zeros(n); om = zeros(n)
-    timenodes!(ts, om, grid, TN)
-    Phi = zeros(n); dgn = zeros(n); Gc = zeros(n)
-    Ninv = zeros(n); dC = zeros(n)
-    sepkernel!(Phi, dgn, Gc, Ninv, dC, ts, TN)
-
-    x = abs.(randn(n)) .* 1e-6
-    out = zeros(n)
-    transition!(out, x, Phi, dgn, Gc, Ninv, dC, om, n)
-
-    jprt = reshape(copy(x), n, 1)
-    temp = zeros(1, n)
-    transition!(temp, jprt, 1, Phi, dgn, Gc, Ninv, dC, om, n)
-    @test out ≈ vec(temp[1, :])
-end
-
 @testset "fused sweep converges to the order loop under Picard" begin
     TN = [3.0e9, 20000.0, 2500.0, 2000.0, 500.0, 10000.0]
     mu = 1.25e-8
-    grid = TimeGrid(length(TN) ÷ 2; m = 100, mtail = 100)
+    grid = TimeGrid(length(TN) ÷ 2; msub = 10, nfin = 4, ntail = 12)
     edges, rs = prodgrid(200, 30_000)
 
     for ratio in (1.0, 4.0)
@@ -100,7 +123,7 @@ end
     TN = [3.0e9, 20000.0, 2500.0, 2000.0, 500.0, 10000.0]
     mu = 1.25e-8
     rho = 4mu
-    grid = TimeGrid(length(TN) ÷ 2; m = 64, mtail = 64)
+    grid = TimeGrid(length(TN) ÷ 2; msub = 8, nfin = 4, ntail = 8)
     edges, rs = prodgrid(200, 30_000)
     for np in 1:4
         ys = rawfused(rs, edges, mu, rho, grid, TN, np)
@@ -112,14 +135,14 @@ end
 @testset "bag wrapper matches the raw fusedsweep!" begin
     TN = [3.0e9, 20000.0, 2500.0, 2000.0, 500.0, 10000.0]
     mu = 1.25e-8
-    grid = TimeGrid(length(TN) ÷ 2; m = 64, mtail = 64)
+    grid = TimeGrid(length(TN) ÷ 2; msub = 8, nfin = 4, ntail = 8)
     edges, rs = prodgrid(200, 30_000)
 
     for ratio in (1.0, 4.0)
         rho = mu * ratio
         np = getnpicard(mu, rho)
 
-        bag = IntegralArrays(10, grid, length(rs), Val{length(TN)})
+        bag = IntegralArrays(grid, length(rs), Val{length(TN)})
         fusedsweep!(bag, rs, edges, mu, rho, TN)
         auto = copy(get_tmp(bag.ys, eltype(TN)))
         @test auto ≈ rawfused(rs, edges, mu, rho, grid, TN, np)
@@ -135,52 +158,42 @@ end
     end
 end
 
-@testset "mldsmcp method keyword" begin
+@testset "mldsmcp entry points agree" begin
     TN = [3.0e9, 20000.0, 2500.0, 2000.0, 500.0, 10000.0]
     mu = 1.25e-8
     rho = 4mu
     edges, rs = prodgrid(200, 30_000)
 
-    # mldsmcp builds its own TimeGrid(length(TN)÷2) internally with default
-    # m/mtail when mpanel/mtail are left at zero. Match that grid here so the
-    # direct bag calls stay comparable.
+    # mldsmcp builds its own timegrid(length(TN)÷2) internally when msub/nfin/
+    # ntail are left at zero. Match that grid here so the direct bag calls stay
+    # comparable.
     grid = TimeGrid(length(TN) ÷ 2)
 
-    # :fused agrees with the direct bag call
-    got = mldsmcp(rs, edges, mu, rho, TN; method = :fused)
-    bag = IntegralArrays(10, grid, length(rs), Val{length(TN)})
+    got = mldsmcp(rs, edges, mu, rho, TN)
+    bag = IntegralArrays(grid, length(rs), Val{length(TN)})
     fusedsweep!(bag, rs, edges, mu, rho, TN)
     @test got ≈ get_tmp(bag.ys, eltype(TN))
 
-    # :order reproduces the pre-change behaviour bit for bit
-    order = 12
-    want = mldsmcp(rs, edges, mu, rho, TN; order = order, method = :order)
-    bag2 = IntegralArrays(order, grid, length(rs), Val{length(TN)})
-    SMCp.prordn!(bag2, rs, edges, mu + rho, TN)
-    mldsmcp!(bag2, 1:order, mu, rho, TN)
-    @test want == get_tmp(bag2.ys, eltype(TN))
-
-    # the mutating entry defaults to the fused sweep, like mldsmcp
-    bag3 = IntegralArrays(order, grid, length(rs), Val{length(TN)})
-    mldsmcp!(bag3, 1:order, rs, edges, mu, rho, TN)
+    # the mutating entry is the same computation
+    bag3 = IntegralArrays(grid, length(rs), Val{length(TN)})
+    mldsmcp!(bag3, rs, edges, mu, rho, TN)
     @test get_tmp(bag3.ys, eltype(TN)) == got
 
-    # res is poisoned on the fused path so stale per-order reads are loud
-    bag4 = IntegralArrays(order, grid, length(rs), Val{length(TN)})
-    mldsmcp!(bag4, 1:order, rs, edges, mu, rho, TN; method = :fused)
-    @test all(isnan, get_tmp(bag4.res, eltype(TN)))
-
-    @test_throws ArgumentError mldsmcp(rs, edges, mu, rho, TN; method = :bogus)
+    # explicit sub-panel counts reach the constructor
+    g2 = TimeGrid(length(TN) ÷ 2; msub = 10, nfin = 2, ntail = 8)
+    bag2 = IntegralArrays(g2, length(rs), Val{length(TN)})
+    fusedsweep!(bag2, rs, edges, mu, rho, TN)
+    @test mldsmcp(rs, edges, mu, rho, TN; msub = 10, nfin = 2, ntail = 8) ≈
+          get_tmp(bag2.ys, eltype(TN))
 end
 
-# max |z| over bins that would survive adapt_histogram's tail threshold.
-# mldsmcp has no `ndt` kwarg any more (it always uses TimeGrid(length(TN)÷2)
-# with default node counts), so the order-loop reference is built on the same
-# default grid for an apples-to-apples comparison.
+# max |z| over bins that would survive adapt_histogram's tail threshold. The
+# order-loop reference is built on the same default grid as mldsmcp, so this
+# isolates the Picard/exponential-Euler error from the quadrature's.
 function maxz(rs, edges, mu, rho, TN; reford = 200, tailthr = 10)
     grid = TimeGrid(length(TN) ÷ 2)
     ref = orderref(rs, edges, mu, rho, grid, TN, reford)
-    got = mldsmcp(rs, edges, mu, rho, TN; method = :fused)
+    got = mldsmcp(rs, edges, mu, rho, TN)
     keep = findall(ref .> tailthr)
     @assert length(keep) > 100
     maximum(abs.(got[keep] .- ref[keep]) ./ sqrt.(ref[keep]))
@@ -216,7 +229,7 @@ end
     mu = 1.25e-8
     rho = 4mu
     edges, rs = prodgrid(800, 50_000_000)
-    ys = mldsmcp(rs, edges, mu, rho, TN; method = :fused)
+    ys = mldsmcp(rs, edges, mu, rho, TN)
     @test all(isfinite, ys)
     @test all(ys .> 0)
     @test maxz(rs, edges, mu, rho, TN) < 1e-2
@@ -239,10 +252,10 @@ end
     edges = collect(1.0:1.0:40.0)
     rs = collect(1.0:1.0:39.0)
     TN0 = [3.0e9, 20000.0, 2500.0, 2000.0, 500.0, 10000.0]
-    grid = TimeGrid(length(TN0) ÷ 2; m = 32, mtail = 32)
+    grid = TimeGrid(length(TN0) ÷ 2; msub = 8, nfin = 2, ntail = 8)
 
     function total(TN)
-        bag = IntegralArrays(4, grid, length(rs), Val{length(TN)})
+        bag = IntegralArrays(grid, length(rs), Val{length(TN)})
         fusedsweep!(bag, rs, edges, mu, rho, TN)
         sum(get_tmp(bag.ys, eltype(TN)))
     end

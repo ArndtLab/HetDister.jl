@@ -143,12 +143,6 @@ function fraction(mu, rho, n)
     mu/(mu+rho) * (rho/(mu+rho))^(n-1)
 end
 
-function getorder(cutoff, mu, rho)
-    o = findfirst(map(i->fraction(mu,rho,i),1:50) .< cutoff)
-    isnothing(o) && (o = 50)
-    return o
-end
-
 mutable struct Deltas
     factors::Vector{Float64}
     state::Integer
@@ -229,9 +223,9 @@ mutable struct FitOptions
     force::Bool
     maxnts::Int
     naive::Bool
-    order::Int
-    mpanel::Int
-    mtail::Int
+    msub::Int
+    nfin::Int
+    ntail::Int
     locut::Int
 end
 
@@ -263,13 +257,10 @@ recombination rate `rho` per base pair per generation.
 - `force::Bool=true`: if true try to fit further epochs even when no signal is found.
 - `maxnts::Int=5`: The maximum number of new time splits to consider when adding a new epoch.
   Higher is greedier.
-- `order::Int=0`: maximum number of higher order SMC' corrections to account for
-  (i.e. number of intermediate recombination events plus one). When zero, it
-  is set automatically.
-- `mpanel::Int=0`: Gauss-Legendre nodes per epoch panel in the time quadrature.
-  When zero, the `TimeGrid` default is used.
-- `mtail::Int=0`: Gauss-Legendre nodes under the algebraic map on the final
-  semi-infinite panel. When zero, the `TimeGrid` default is used.
+- `msub::Int=0`: Gauss-Legendre nodes per sub-panel in the time quadrature.
+- `nfin::Int=0`: sub-panels per finite epoch.
+- `ntail::Int=0`: sub-panels in the semi-infinite tail.
+  Each of the three takes the `TimeGrid` default when zero.
 - `locut::Int=20`: index of the first histogram bin to consider in the fit.
 """
 function FitOptions(Ltot, nhet, mu, rho;
@@ -279,9 +270,9 @@ function FitOptions(Ltot, nhet, mu, rho;
     force::Bool = true,
     maxnts::Int = 10,
     naive::Bool = true,
-    order::Int = 0,
-    mpanel::Int = 0,
-    mtail::Int = 0,
+    msub::Int = 0,
+    nfin::Int = 0,
+    ntail::Int = 0,
     locut::Int = 20
 )
     N = 2nepochs
@@ -294,13 +285,10 @@ function FitOptions(Ltot, nhet, mu, rho;
     factors = [0.001, 0.01, 0.1, 0.5, 0.5, 0.9, 2] # mapreduce( i->fill(i, 10), vcat, [0.001, 0.01, 0.1, 0.5, 0.5, 0.9, 2] )
     delta = Deltas(factors, 0)
 
-    dflt = Spectra.SMCpIntegrals.TimeGrid(1)
-    iszero(mpanel) && (mpanel = dflt.m)
-    iszero(mtail)  && (mtail  = dflt.mtail)
-    cutoff = 2e-5 # fraction of segments contributing to higher orders
-    if iszero(order)
-        order = getorder(cutoff, mu, rho)
-    end
+    dflt = Spectra.SMCpIntegrals.TIMEGRID_DEFAULTS
+    iszero(msub)  && (msub  = dflt.msub)
+    iszero(nfin)  && (nfin  = dflt.nfin)
+    iszero(ntail) && (ntail = dflt.ntail)
 
     solver = LBFGS()
     maxiters = 30000
@@ -328,9 +316,9 @@ function FitOptions(Ltot, nhet, mu, rho;
         force,
         maxnts,
         naive,
-        order,
-        mpanel,
-        mtail,
+        msub,
+        nfin,
+        ntail,
         locut
     )
 end

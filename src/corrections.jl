@@ -147,8 +147,8 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
     hi_edge = h_obs.edges[1].edges[end]
     hth = CustomEdgeVector(; lo = lo_edge, hi = hi_edge - 1, nbins = th_discr)
     rs_th = midpoints(hth)
-    bag = IntegralArrays(fop.order,
-                         Spectra.SMCpIntegrals.TimeGrid(epochs; m = fop.mpanel, mtail = fop.mtail),
+    bag = IntegralArrays(timegrid(epochs;
+                             msub = fop.msub, nfin = fop.nfin, ntail = fop.ntail),
                          length(rs_th), Val{2epochs})
 
     chain = []
@@ -180,7 +180,7 @@ function demoinfer(h_obs::Histogram{T,1,E}, epochs::Int, fop_::FitOptions;
         push!(corrections, corr)
 
         rho = ramp(iter, fop.mu, fop.rho)
-        mldsmcp!(bag, 1:bag.order, rs_th, hth, fop.mu, rho, init)
+        mldsmcp!(bag, rs_th, hth, fop.mu, rho, init)
         yth_fine = get_tmp(bag.ys, eltype(init))
         wth_fine = yth_fine .* diff(hth)
         wth = map_fine_to_coarse(wth_fine, hth, h_obs.edges[1])
@@ -252,8 +252,8 @@ end
 
 function correctestimate!(fop::FitOptions, fit::FitResult, h::Histogram)
     rs = midpoints(h.edges[1])
-    bag = IntegralArrays(fop.order,
-                         Spectra.SMCpIntegrals.TimeGrid(length(fit.para) ÷ 2; m = fop.mpanel, mtail = fop.mtail),
+    bag = IntegralArrays(timegrid(length(fit.para) ÷ 2;
+                             msub = fop.msub, nfin = fop.nfin, ntail = fop.ntail),
                          length(rs), Val{length(fit.para)}, 3)
 
     setnepochs!(fop, length(fit.para)÷2)
